@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Whisper Live Transcriber</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>🎙️ Whisper Live Transcriber</h1>
+    <div id="status">
+      <span id="status-dot" class="dot idle"></span>
+      <span id="status-text">Idle</span>
+    </div>
+  </header>
+
+  <section class="controls">
+    <button id="start-btn" class="primary">Start</button>
+    <button id="stop-btn" disabled>Stop</button>
+
+    <label class="field">
+      <span>LocalAI server URL</span>
+      <input id="whisper-url" type="text" spellcheck="false"
+             placeholder="http://localhost:8080" />
+    </label>
+
+    <label class="field">
+      <span>Language</span>
+      <select id="language">
+        <option value="auto" selected>Auto detect</option>
+        <option value="en">English</option>
+        <option value="zh">中文 (Chinese)</option>
+        <option value="es">Español</option>
+        <option value="fr">Français</option>
+        <option value="de">Deutsch</option>
+        <option value="it">Italiano</option>
+        <option value="pt">Português</option>
+        <option value="nl">Nederlands</option>
+        <option value="ru">Русский</option>
+        <option value="uk">Українська</option>
+        <option value="ja">日本語</option>
+        <option value="ko">한국어</option>
+        <option value="hi">हिन्दी</option>
+        <option value="ar">العربية</option>
+        <option value="tr">Türkçe</option>
+        <option value="pl">Polski</option>
+        <option value="vi">Tiếng Việt</option>
+        <option value="id">Bahasa Indonesia</option>
+        <option value="th">ไทย</option>
+        <option value="sv">Svenska</option>
+        <option value="da">Dansk</option>
+        <option value="no">Norsk</option>
+        <option value="fi">Suomi</option>
+        <option value="cs">Čeština</option>
+        <option value="el">Ελληνικά</option>
+        <option value="he">עברית</option>
+        <option value="ro">Română</option>
+        <option value="hu">Magyar</option>
+        <option value="sk">Slovenčina</option>
+      </select>
+    </label>
+  </section>
+
+  <section class="transcript-wrap">
+    <div class="transcript-header">
+      <span>Transcript</span>
+      <button id="clear-btn" class="ghost">Clear</button>
+    </div>
+    <div id="transcript" class="transcript"><span class="muted">Transcription will appear here…</span></div>
+  </section>
+
+  <div id="log"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
