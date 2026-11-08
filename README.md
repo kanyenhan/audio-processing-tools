@@ -68,8 +68,11 @@ whisper-ctranslate2 (app/transcriber.py)   — CTranslate2 + faster-whisper,
 - Browser → app: `{"type":"start","model":"turbo","language":...}`,
   `{"type":"stop"}`, and binary PCM16 frames (~4 KB / ~250 ms chunks).
 - App → browser: `{"type":"status", ...}` (`loading_model`, `connected`,
-  `idle`, `disconnected`), `{"type":"error"|"warning", ...}`, plus
-  `{"text": "...", "is_final": true}` for each completed utterance.
+  `idle`, `disconnected`), `{"type":"error"|"warning", ...}`, plus one
+  `{"text": "...", "is_final": true, "language": "en", "duration": 6.5,
+  "vad_removed": 1.4, "ts": <epoch ms>}` per completed utterance — rendered
+  in the UI as separate paragraphs, each prefixed with
+  `[HH:MM:SS] lang · Xs audio · VAD −Ys`.
 
 The live/VAD tuning follows
 [Run Local Speech-to-Text Transcription](https://simonlermen.substack.com/p/run-local-speech-to-text-transcription):

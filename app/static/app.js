@@ -16,7 +16,6 @@ const logEl = document.getElementById("log");
 
 let localWs = null;
 let running = false;
-let committedText = "";
 let partialEl = null;
 
 let audioCtx = null;
@@ -102,6 +101,23 @@ function textOf(msg) {
   return msg.text ?? msg.transcript ?? msg.message ?? null;
 }
 
+function formatSeconds(value) {
+  return `${(Math.round(value * 10) / 10).toFixed(1)}s`;
+}
+
+function segmentMeta(msg) {
+  // "[19:46:15] en · 6.5s audio · VAD −1.4s"
+  const bits = [];
+  if (msg.ts) bits.push(new Date(msg.ts).toLocaleTimeString());
+  const lang = msg.language || "auto";
+  bits.push(lang);
+  if (typeof msg.duration === "number") bits.push(`${formatSeconds(msg.duration)} audio`);
+  if (typeof msg.vad_removed === "number" && msg.vad_removed > 0) {
+    bits.push(`VAD −${formatSeconds(msg.vad_removed)}`);
+  }
+  return `[${bits.join(" · ")}]`;
+}
+
 function appendTranscript(msg) {
   const text = textOf(msg);
   if (text === null || text === undefined || text === "") return;
@@ -115,22 +131,27 @@ function appendTranscript(msg) {
     }
     partialEl.textContent = text;
   } else {
-    // Final transcript: commit it and drop any pending partial.
+    // Each completed utterance is its own paragraph on a new line.
     if (partialEl) {
       partialEl.remove();
       partialEl = null;
     }
-    if (committedText === "" && transcriptEl.firstElementChild?.classList.contains("muted")) {
+    if (transcriptEl.firstElementChild?.classList.contains("muted")) {
       transcriptEl.innerHTML = "";
     }
-    committedText += text;
-    transcriptEl.appendChild(document.createTextNode(text));
+    const seg = document.createElement("div");
+    seg.className = "segment";
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = segmentMeta(msg);
+    seg.appendChild(meta);
+    seg.appendChild(document.createTextNode(` ${text.trim()}`));
+    transcriptEl.appendChild(seg);
   }
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
 }
 
 clearBtn.addEventListener("click", () => {
-  committedText = "";
   partialEl = null;
   transcriptEl.innerHTML = '<span class="muted">Transcription will appear here…</span>';
 });

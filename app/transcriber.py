@@ -21,6 +21,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -43,6 +45,45 @@ _FAKE = os.environ.get("WHISPER_LIVE_FAKE_TRANSCRIBER", "").lower() in (
 )
 _FAKE_WORDS = ["this", "is", "a", "mock", "transcription", "from", "the", "test"]
 _fake_counter = 0
+
+
+def _parse_timestamp(value: str) -> float:
+    """Parse a faster-whisper ``format_timestamp`` string (MM:SS.mmm or
+    HH:MM:SS.mmm) into seconds."""
+    seconds = 0.0
+    for part in value.split(":"):
+        seconds = seconds * 60 + float(part)
+    return seconds
+
+
+class _VadLogHandler(logging.Handler):
+    """Capture faster-whisper's ``VAD filter removed …`` log line.
+
+    faster-whisper (used by whisper-ctranslate2) only reports the VAD
+    result through its ``faster_whisper`` logger, so we tap it here.
+    Inference runs in worker threads, so the captured value is kept in
+    thread-local storage.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if not record.getMessage().startswith("VAD filter removed"):
+            return
+        match = re.search(r"(\d+(?::\d+)*\.\d+)", record.getMessage())
+        if match:
+            try:
+                _vad_capture.vad_removed = _parse_timestamp(match.group(1))
+            except ValueError:
+                pass
+
+
+_vad_capture = threading.local()
+# faster-whisper logs VAD results through the "faster_whisper" logger; attach
+# the capture handler directly to it (and pin its level) so the lines are not
+# gated out by the root/uvicorn log level.
+_whisper_logger = logging.getLogger("faster_whisper")
+if not any(isinstance(h, _VadLogHandler) for h in _whisper_logger.handlers):
+    _whisper_logger.addHandler(_VadLogHandler())
+_whisper_logger.setLevel(logging.INFO)
 
 
 def live_options() -> TranscriptionOptions:
@@ -135,17 +176,32 @@ class LocalTranscriber:
         )
         log.info("Model %r ready", self.model)
 
-    async def transcribe(self, audio: np.ndarray, language: str | None) -> str:
-        """Transcribe one segment; returns the text (may be empty)."""
+    async def transcribe(
+        self, audio: np.ndarray, language: str | None
+    ) -> dict:
+        """Transcribe one segment.
+
+        Returns ``{"text", "language", "duration", "vad_removed"}`` where
+        ``language`` is the detected (or requested) ISO code and
+        ``vad_removed`` is the number of seconds the VAD filter dropped
+        (None when unknown or in fake mode).
+        """
         async with self._lock:
             return await asyncio.to_thread(self._infer_sync, audio, language)
 
-    def _infer_sync(self, audio: np.ndarray, language: str | None) -> str:
+    def _infer_sync(self, audio: np.ndarray, language: str | None) -> dict:
         global _fake_counter
+        duration = round(len(audio) / 16000.0, 3)
         if _FAKE:
             _fake_counter += 1
-            return f"{_FAKE_WORDS[_fake_counter % len(_FAKE_WORDS)]} "
+            return {
+                "text": f"{_FAKE_WORDS[_fake_counter % len(_FAKE_WORDS)]} ",
+                "language": language if language and language != "auto" else None,
+                "duration": duration,
+                "vad_removed": None,
+            }
         assert self._transcribe is not None, "model not loaded"
+        _vad_capture.vad_removed = None
         lang = language if language and language != "auto" else None
         result = self._transcribe.inference(
             audio=audio.flatten().astype("float32"),
@@ -155,7 +211,12 @@ class LocalTranscriber:
             live=True,
             options=live_options(),
         )
-        return (result.get("text") or "").strip()
+        return {
+            "text": (result.get("text") or "").strip(),
+            "language": result.get("language"),
+            "duration": duration,
+            "vad_removed": getattr(_vad_capture, "vad_removed", None),
+        }
 
 
 class TranscriberCache:

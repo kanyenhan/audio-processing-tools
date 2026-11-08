@@ -96,7 +96,7 @@ async def main():
                 try:
                     raw = await asyncio.wait_for(ws.recv(), 1.0)
                 except asyncio.TimeoutError:
-                    break
+                    continue
                 msg = json.loads(raw)
                 if msg.get("type") in ("status", "error", "warning"):
                     print("control:", msg)
@@ -105,6 +105,16 @@ async def main():
                 else:
                     replies += 1
                     print(f"transcript[{msg.get('is_final', True)}]: {msg.get('text')!r}")
+                    print(
+                        "  fields:",
+                        {k: msg.get(k) for k in ("language", "duration", "vad_removed", "ts")},
+                    )
+                    assert msg.get("is_final") is True, "expected final transcript"
+                    assert msg.get("language"), "missing language field"
+                    assert isinstance(msg.get("duration"), (int, float)) and msg["duration"] > 0, \
+                        "missing/invalid duration field"
+                    assert "vad_removed" in msg, "missing vad_removed field"
+                    assert isinstance(msg.get("ts"), int), "missing ts field"
             assert replies >= 1, "no transcript replies received"
 
             # 3. stop session

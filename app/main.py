@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -95,14 +96,23 @@ class TranscriptionSession:
             "Transcribing %.1fs segment (model=%s)", duration, self.transcriber.model
         )
         try:
-            text = await self.transcriber.transcribe(segment, self.language)
+            result = await self.transcriber.transcribe(segment, self.language)
         except Exception as exc:  # noqa: BLE001
             log.warning("Transcription failed: %s", exc)
             return
+        text = result.get("text")
         if not text:
             return
+        message = {
+            "text": text,
+            "is_final": True,
+            "language": result.get("language") or self.language,
+            "duration": result.get("duration", round(duration, 3)),
+            "vad_removed": result.get("vad_removed"),
+            "ts": int(time.time() * 1000),
+        }
         try:
-            await self.browser_ws.send_json({"text": text, "is_final": True})
+            await self.browser_ws.send_json(message)
         except Exception:
             log.info("Browser gone; stopping session")
             self._running = False
@@ -119,7 +129,8 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
     App -> browser messages:
       {"type": "status", "status": "loading_model"|"connected"|"disconnected"|"idle", ...}
       {"type": "error"|"warning", "message": "..."}
-      {"text": "...", "is_final": true}  (transcription results)
+      {"text": "...", "is_final": true, "language": "en", "duration": 6.5,
+       "vad_removed": 1.4, "ts": 1794106083000}  (one per completed utterance)
     """
     await browser_ws.accept()
     session: TranscriptionSession | None = None

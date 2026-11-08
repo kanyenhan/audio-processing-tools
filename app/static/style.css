@@ -124,6 +124,15 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 }
 .transcript .muted { color: var(--muted); }
 .transcript .partial { color: var(--muted); font-style: italic; }
+.transcript .segment { margin-bottom: 14px; }
+.transcript .segment:last-child { margin-bottom: 0; }
+.transcript .segment .meta {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: ui-monospace, Menlo, monospace;
+  margin-bottom: 2px;
+}
 
 #log {
   max-height: 90px;
