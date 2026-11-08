@@ -20,9 +20,15 @@
     <button id="stop-btn" disabled>Stop</button>
 
     <label class="field">
-      <span>LocalAI server URL</span>
-      <input id="whisper-url" type="text" spellcheck="false"
-             placeholder="http://localhost:8080" />
+      <span>Model (whisper-ctranslate2)</span>
+      <select id="model">
+        <option value="turbo" selected>turbo (recommended)</option>
+        <option value="large-v3">large-v3</option>
+        <option value="medium">medium</option>
+        <option value="small">small</option>
+        <option value="base">base</option>
+        <option value="tiny">tiny</option>
+      </select>
     </label>
 
     <label class="field">

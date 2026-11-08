@@ -1,24 +1,26 @@
 """Live Whisper transcription web app.
 
 Serves a browser UI that captures microphone audio as 16 kHz mono PCM16
-and relays it, over websockets, to a local FastAPI relay which then
-transcribes it via the LocalAI REST API. Transcript JSON replies are
-relayed back to the browser.
+and streams it over websockets to this FastAPI app.  Audio is segmented
+into utterances (see app.live_buffer) and transcribed in-process with
+whisper-ctranslate2 (CTranslate2 + faster-whisper, see app.transcriber).
+Transcript results are sent back to the browser as JSON.
 """
 
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 import logging
-import struct
 from pathlib import Path
 
-import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from whisper_ctranslate2.commandline import MODEL_NAMES
+
+from .live_buffer import SpeechSegmenter
+from .transcriber import DEFAULT_MODEL, transcriber_cache
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("whisper-live")
@@ -30,62 +32,27 @@ TEMPLATE_DIR = BASE_DIR / "templates"
 app = FastAPI(title="Whisper Live Transcriber")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# Audio constants (must match the browser client)
-SAMPLE_RATE = 16000
-BYTES_PER_SAMPLE = 2   # PCM16
-CHANNELS = 1
-MIN_AUDIO_SECONDS = 0.5
-MIN_BYTES = int(SAMPLE_RATE * BYTES_PER_SAMPLE * CHANNELS * MIN_AUDIO_SECONDS)
-TRANSCRIBE_TIMEOUT = 60.0
-
 
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(TEMPLATE_DIR / "index.html")
 
 
-def pcm16_to_wav(pcm: bytes) -> bytes:
-    """Wrap raw PCM16 mono data in a WAV container (in memory)."""
-    data_size = len(pcm)
-    buf = io.BytesIO()
-    buf.write(b"RIFF")
-    buf.write(struct.pack("<I", 36 + data_size))
-    buf.write(b"WAVEfmt ")
-    buf.write(struct.pack(
-        "<IHHIIHH",
-        16,                      # fmt chunk size
-        1,                       # audio format (1 = PCM)
-        CHANNELS,                # channels
-        SAMPLE_RATE,             # sample rate
-        SAMPLE_RATE * BYTES_PER_SAMPLE * CHANNELS,  # byte rate
-        BYTES_PER_SAMPLE * CHANNELS,  # block align
-        16,                      # bits per sample
-    ))
-    buf.write(b"data")
-    buf.write(struct.pack("<I", data_size))
-    buf.write(pcm)
-    return buf.getvalue()
-
-
 class TranscriptionSession:
-    """Buffers incoming PCM16 audio and periodically transcribes it
-    via the LocalAI REST API, pushing results back over the browser
-    websocket."""
+    """Buffers incoming PCM16 audio, segments it into utterances, and
+    transcribes each utterance with the in-process whisper-ctranslate2
+    backend, pushing results back over the browser websocket."""
 
     def __init__(
         self,
         browser_ws: WebSocket,
-        base_url: str,
-        model: str,
+        transcriber,
         language: str | None,
     ) -> None:
         self.browser_ws = browser_ws
-        self.base_url = base_url.rstrip("/")
-        self.transcribe_url = f"{self.base_url}/v1/audio/transcriptions"
-        self.model = model
+        self.transcriber = transcriber
         self.language = language
-        self._buffer = bytearray()
-        self._event = asyncio.Event()
+        self.segmenter = SpeechSegmenter()
         self._running = False
         self._task: asyncio.Task | None = None
 
@@ -95,7 +62,6 @@ class TranscriptionSession:
 
     async def stop(self) -> None:
         self._running = False
-        self._event.set()
         if self._task and not self._task.done():
             self._task.cancel()
             try:
@@ -103,85 +69,55 @@ class TranscriptionSession:
             except (asyncio.CancelledError, Exception):
                 pass
         self._task = None
-        self._buffer.clear()
+        # Transcribe any utterance still in the segmenter's buffer.
+        remaining = self.segmenter.flush()
+        if remaining is not None:
+            asyncio.ensure_future(self._process(remaining))
 
     def feed(self, pcm_bytes: bytes) -> None:
         """Called for every binary frame from the browser."""
-        if self._running:
-            self._buffer.extend(pcm_bytes)
-            self._event.set()
+        if not self._running:
+            return
+        for segment in self.segmenter.feed(pcm_bytes):
+            asyncio.ensure_future(self._process(segment))
 
     async def _loop(self) -> None:
-        async with httpx.AsyncClient(timeout=TRANSCRIBE_TIMEOUT) as client:
-            while self._running:
-                try:
-                    await asyncio.wait_for(self._event.wait(), timeout=1.0)
-                except asyncio.TimeoutError:
-                    continue
-                self._event.clear()
-
-                if not self._running:
-                    break
-
-                if len(self._buffer) < MIN_BYTES:
-                    continue
-
-                chunk = bytes(self._buffer)
-                self._buffer.clear()
-
-                wav = pcm16_to_wav(chunk)
-                duration = len(chunk) / (SAMPLE_RATE * BYTES_PER_SAMPLE)
-                log.info(
-                    "Transcribing %.1fs audio (%d bytes WAV) via %s model=%s",
-                    duration, len(wav), self.transcribe_url, self.model,
-                )
-
-                result = await self._transcribe(client, wav)
-                if result is not None:
-                    try:
-                        await self.browser_ws.send_json(result)
-                    except Exception:
-                        log.info("Browser gone; stopping session")
-                        self._running = False
-                        break
-
-    async def _transcribe(
-        self, client: httpx.AsyncClient, wav: bytes
-    ) -> dict | None:
-        form: dict[str, str] = {"model": self.model}
-        if self.language and self.language != "auto":
-            form["language"] = self.language
-
+        """Keeps the session alive until stopped."""
         try:
-            resp = await client.post(
-                self.transcribe_url,
-                files={"file": ("audio.wav", wav, "audio/wav")},
-                data=form,
-            )
-            resp.raise_for_status()
-            body = resp.json()
-            text = body.get("text", "")
-            if text:
-                return {"text": text, "is_final": True}
-        except httpx.HTTPStatusError as exc:
-            log.warning(
-                "LocalAI HTTP %s: %s",
-                exc.response.status_code, exc.response.text[:300],
-            )
+            while self._running:
+                await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            pass
+
+    async def _process(self, segment) -> None:
+        duration = len(segment) / 16000.0
+        log.info(
+            "Transcribing %.1fs segment (model=%s)", duration, self.transcriber.model
+        )
+        try:
+            text = await self.transcriber.transcribe(segment, self.language)
         except Exception as exc:  # noqa: BLE001
-            log.warning("Transcription request failed: %s", exc)
-        return None
+            log.warning("Transcription failed: %s", exc)
+            return
+        if not text:
+            return
+        try:
+            await self.browser_ws.send_json({"text": text, "is_final": True})
+        except Exception:
+            log.info("Browser gone; stopping session")
+            self._running = False
+
 
 @app.websocket("/ws")
 async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
-    """Browser-side websocket: control messages + audio relay.
+    """Browser-side websocket: control messages + streaming audio.
 
     Browser -> app messages:
-      {"type": "start", "whisper_url": "http://...", "language": "auto"|code, "model": "whisper-large"}
+      {"type": "start", "model": "turbo", "language": "auto"|code}
       {"type": "stop"}
       binary frames (PCM16 16kHz mono audio chunks)
     App -> browser messages:
-      {"type": "status", "status": "connected"|"disconnected"|"idle", ...}
+      {"type": "status", "status": "loading_model"|"connected"|"disconnected"|"idle", ...}
       {"type": "error"|"warning", "message": "..."}
       {"text": "...", "is_final": true}  (transcription results)
     """
@@ -208,37 +144,59 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
             mtype = data.get("type")
 
             if mtype == "start":
-                base_url = (data.get("whisper_url") or "http://localhost:8080").strip()
-                model = (data.get("model") or "whisper-large").strip()
+                model = (data.get("model") or DEFAULT_MODEL).strip()
                 language = (data.get("language") or "auto").strip()
+
+                if model not in MODEL_NAMES:
+                    await browser_ws.send_json(
+                        {
+                            "type": "error",
+                            "message": (
+                                f"Unknown model {model!r}. Available: "
+                                + ", ".join(MODEL_NAMES)
+                            ),
+                        }
+                    )
+                    continue
 
                 if session is not None:
                     await session.stop()
                     session = None
 
-                log.info("Connecting to LocalAI at %s (model=%s)", base_url, model)
+                transcriber = await transcriber_cache.get(model)
 
-                try:
-                    async with httpx.AsyncClient(timeout=5.0) as check:
-                        resp = await check.get(f"{base_url.rstrip('/')}/v1/models")
-                        if resp.status_code != 200:
-                            raise ConnectionError(
-                                f"LocalAI returned HTTP {resp.status_code}"
-                            )
-                except Exception as exc:
+                if not transcriber.ready:
                     await browser_ws.send_json(
                         {
-                            "type": "error",
-                            "message": f"Cannot reach LocalAI at {base_url}: {exc}",
+                            "type": "status",
+                            "status": "loading_model",
+                            "model": model,
+                            "message": "Loading model (first run downloads it)…",
                         }
                     )
-                    continue
+                    try:
+                        await transcriber.ensure_loaded()
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("Model load failed: %s", exc)
+                        await browser_ws.send_json(
+                            {
+                                "type": "error",
+                                "message": f"Failed to load model {model!r}: {exc}",
+                            }
+                        )
+                        continue
 
+                log.info("Session started (model=%s, language=%s)", model, language)
                 await browser_ws.send_json(
-                    {"type": "status", "status": "connected", "url": base_url}
+                    {
+                        "type": "status",
+                        "status": "connected",
+                        "model": model,
+                        "url": f"whisper-ctranslate2/{model}",
+                    }
                 )
 
-                session = TranscriptionSession(browser_ws, base_url, model, language)
+                session = TranscriptionSession(browser_ws, transcriber, language)
                 session.start()
 
             elif mtype == "stop":
@@ -259,5 +217,4 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
     finally:
         if session is not None:
             await session.stop()
-
 

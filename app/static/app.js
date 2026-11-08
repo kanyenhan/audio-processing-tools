@@ -1,21 +1,18 @@
 // Whisper Live Transcriber — browser client.
 // Captures microphone audio as 16 kHz mono PCM16 and streams it to the
-// local FastAPI relay, which forwards it to the Whisper server.
+// local FastAPI app, which transcribes it in-process via whisper-ctranslate2.
 
-const DEFAULT_WHISPER_URL = "http://localhost:8080";
 const TARGET_SAMPLE_RATE = 16000;
 
 const startBtn = document.getElementById("start-btn");
 const stopBtn = document.getElementById("stop-btn");
 const clearBtn = document.getElementById("clear-btn");
-const urlInput = document.getElementById("whisper-url");
+const modelSelect = document.getElementById("model");
 const langSelect = document.getElementById("language");
 const transcriptEl = document.getElementById("transcript");
 const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
 const logEl = document.getElementById("log");
-
-urlInput.value = DEFAULT_WHISPER_URL;
 
 let localWs = null;
 let running = false;
@@ -72,7 +69,10 @@ function handleServerMessage(msg) {
     case "status":
       if (msg.status === "connected") {
         setStatus("recording", `Recording → ${msg.url}`);
-        log(`Connected to whisper server at ${msg.url}`);
+        log(`Transcribing locally with ${msg.url}`);
+      } else if (msg.status === "loading_model") {
+        setStatus("connecting", msg.message || "Loading model…");
+        log(`Model ${msg.model} is not loaded yet: ${msg.message || "downloading/loading"}`);
       } else if (msg.status === "disconnected") {
         setStatus("error", "Whisper server disconnected");
         log(msg.message || "Whisper server disconnected", "err");
@@ -227,11 +227,11 @@ function stopAudio() {
 
 async function start() {
   if (running) return;
-  const url = urlInput.value.trim() || DEFAULT_WHISPER_URL;
+  const model = modelSelect.value;
   const language = langSelect.value;
 
   startBtn.disabled = true;
-  urlInput.disabled = true;
+  modelSelect.disabled = true;
   langSelect.disabled = true;
   setStatus("connecting", "Connecting…");
 
@@ -247,19 +247,19 @@ async function start() {
     });
   }
 
-  localWs.send(JSON.stringify({ type: "start", whisper_url: url, language }));
+  localWs.send(JSON.stringify({ type: "start", model, language }));
 
   try {
     await startAudio();
     running = true;
     stopBtn.disabled = false;
-    // Status flips to "recording" when the backend confirms the
-    // connection to the whisper server; otherwise an error arrives.
+    // Status flips to "recording" when the local model is ready;
+    // otherwise an error (or loading_model) arrives.
   } catch (err) {
     log(`Microphone access failed: ${err.message}`, "err");
     setStatus("error", "Microphone error");
     startBtn.disabled = false;
-    urlInput.disabled = false;
+    modelSelect.disabled = false;
     langSelect.disabled = false;
   }
 }
@@ -278,7 +278,7 @@ function stopAll(reason) {
   }
   if (!reason) setStatus("idle", "Idle");
   startBtn.disabled = false;
-  urlInput.disabled = false;
+  modelSelect.disabled = false;
   langSelect.disabled = false;
   stopBtn.disabled = true;
 }
