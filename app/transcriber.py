@@ -121,8 +121,26 @@ if not any(isinstance(h, _VadLogHandler) for h in _whisper_logger.handlers):
 _whisper_logger.setLevel(logging.INFO)
 
 
-def live_options() -> TranscriptionOptions:
-    """Transcription options tuned for live streaming (see module docstring)."""
+#: Whisper rarely emits punctuation on its own; an initial prompt nudges the
+#: zh output to include Chinese punctuation (kept in Traditional to match the
+#: s2t-converted transcript shown to the user).
+ZH_INITIAL_PROMPT = "請加上標點符號，例如：你好，這是一個測試？"
+
+
+def zh_initial_prompt(language: str | None) -> str | None:
+    """Return the punctuation nudge for zh, else no initial prompt."""
+    if (language or "").lower() == "zh":
+        return ZH_INITIAL_PROMPT
+    return None
+
+
+def live_options(language: str | None = None) -> TranscriptionOptions:
+    """Transcription options tuned for live streaming (see module docstring).
+
+    ``language`` selects an ``initial_prompt`` — e.g. zh gets a prompt asking
+    for punctuation, since the model otherwise tends to emit unpunctuated
+    text.
+    """
     return TranscriptionOptions(
         beam_size=5,
         best_of=5,
@@ -136,7 +154,7 @@ def live_options() -> TranscriptionOptions:
         condition_on_previous_text=False,  # live: avoid looping on prior output
         prompt_reset_on_temperature=0.5,
         temperature=(0.0,),
-        initial_prompt=None,
+        initial_prompt=zh_initial_prompt(language),
         prefix=None,
         hotwords=None,
         suppress_blank=True,
@@ -244,7 +262,7 @@ class LocalTranscriber:
             language=lang,
             verbose=False,
             live=True,
-            options=live_options(),
+            options=live_options(language),
         )
         text = to_traditional((result.get("text") or "").strip(), result.get("language"))
         return {
