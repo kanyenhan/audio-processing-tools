@@ -76,6 +76,41 @@ class _VadLogHandler(logging.Handler):
                 pass
 
 
+_s2t_converter: "OpenCC | None" = None
+_s2t_lock = threading.Lock()
+
+
+def _get_s2t() -> "OpenCC":
+    """Lazily create the shared Simplified -> Traditional OpenCC converter.
+
+    Created on first use (and only for zh segments) so importing this module
+    or running in fake-transcriber mode never pays the initialization cost.
+    OpenCC converters are read-only after construction, so sharing one
+    instance across inference worker threads is safe.
+    """
+    global _s2t_converter
+    if _s2t_converter is None:
+        with _s2t_lock:
+            if _s2t_converter is None:
+                from opencc import OpenCC  # opencc-python-reimplemented
+
+                _s2t_converter = OpenCC("s2t")
+    return _s2t_converter
+
+
+def to_traditional(text: str, language: str | None) -> str:
+    """Convert Simplified Chinese to Traditional when the segment is zh.
+
+    whisper-ctranslate2 cannot be told to emit Traditional Chinese: the
+    ``zh`` language code covers both variants and the model tends to output
+    Simplified.  ``s2t`` is a near-identity mapping on already-Traditional
+    text, so converting unconditionally for ``zh`` is safe.
+    """
+    if (language or "").lower() == "zh" and text:
+        return _get_s2t().convert(text)
+    return text
+
+
 _vad_capture = threading.local()
 # faster-whisper logs VAD results through the "faster_whisper" logger; attach
 # the capture handler directly to it (and pin its level) so the lines are not
@@ -211,8 +246,9 @@ class LocalTranscriber:
             live=True,
             options=live_options(),
         )
+        text = to_traditional((result.get("text") or "").strip(), result.get("language"))
         return {
-            "text": (result.get("text") or "").strip(),
+            "text": text,
             "language": result.get("language"),
             "duration": duration,
             "vad_removed": getattr(_vad_capture, "vad_removed", None),

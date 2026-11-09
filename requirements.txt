@@ -3,3 +3,4 @@ uvicorn[standard]>=0.29
 websockets>=12
 whisper-ctranslate2>=0.5.8
 numpy>=1.26
+opencc-python-reimplemented>=0.1.7
