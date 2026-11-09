@@ -9,6 +9,7 @@ const stopBtn = document.getElementById("stop-btn");
 const clearBtn = document.getElementById("clear-btn");
 const modelSelect = document.getElementById("model");
 const langSelect = document.getElementById("language");
+const translateChk = document.getElementById("translate-en");
 const transcriptEl = document.getElementById("transcript");
 const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
@@ -88,6 +89,9 @@ function handleServerMessage(msg) {
       break;
     case "warning":
       log(msg.message, "warn");
+      // Surface actionable warnings (e.g. model cannot translate) in the
+      // status bar, not just the log.
+      setStatus("connecting", msg.message);
       break;
     default:
       // Transcript relayed from the whisper server (tolerant parsing).
@@ -146,6 +150,12 @@ function appendTranscript(msg) {
     meta.textContent = segmentMeta(msg);
     seg.appendChild(meta);
     seg.appendChild(document.createTextNode(` ${text.trim()}`));
+    if (msg.translation) {
+      const tr = document.createElement("div");
+      tr.className = "translation";
+      tr.textContent = msg.translation.trim();
+      seg.appendChild(tr);
+    }
     transcriptEl.appendChild(seg);
   }
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
@@ -250,10 +260,12 @@ async function start() {
   if (running) return;
   const model = modelSelect.value;
   const language = langSelect.value;
+  const translate = translateChk.checked;
 
   startBtn.disabled = true;
   modelSelect.disabled = true;
   langSelect.disabled = true;
+  // translateChk stays enabled: it can be toggled mid-session.
   setStatus("connecting", "Connecting…");
 
   if (!localWs || localWs.readyState === WebSocket.CLOSED) {
@@ -268,7 +280,7 @@ async function start() {
     });
   }
 
-  localWs.send(JSON.stringify({ type: "start", model, language }));
+  localWs.send(JSON.stringify({ type: "start", model, language, translate }));
 
   try {
     await startAudio();
@@ -306,6 +318,13 @@ function stopAll(reason) {
 
 startBtn.addEventListener("click", start);
 stopBtn.addEventListener("click", () => stopAll(undefined));
+translateChk.addEventListener("change", () => {
+  // Toggle mid-session: applies to segments from now on.
+  if (localWs && localWs.readyState === WebSocket.OPEN) {
+    localWs.send(JSON.stringify({ type: "set_translate", translate: translateChk.checked }));
+    log(`Translation to English ${translateChk.checked ? "enabled" : "disabled"}`);
+  }
+});
 
 connectLocalWs();
 setStatus("idle", "Idle — press Start (mic permission will be requested)");

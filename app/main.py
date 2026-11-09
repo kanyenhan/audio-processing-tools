@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from whisper_ctranslate2.commandline import MODEL_NAMES
 
 from .live_buffer import SpeechSegmenter
-from .transcriber import DEFAULT_MODEL, transcriber_cache
+from .transcriber import DEFAULT_MODEL, translation_available, transcriber_cache
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("whisper-live")
@@ -49,10 +49,13 @@ class TranscriptionSession:
         browser_ws: WebSocket,
         transcriber,
         language: str | None,
+        translate: bool = False,
     ) -> None:
         self.browser_ws = browser_ws
         self.transcriber = transcriber
         self.language = language
+        #: When enabled, non-English segments are also translated to English.
+        self.translate = translate
         self.segmenter = SpeechSegmenter()
         self._running = False
         self._task: asyncio.Task | None = None
@@ -96,7 +99,9 @@ class TranscriptionSession:
             "Transcribing %.1fs segment (model=%s)", duration, self.transcriber.model
         )
         try:
-            result = await self.transcriber.transcribe(segment, self.language)
+            result = await self.transcriber.transcribe(
+                segment, self.language, translate=self.translate
+            )
         except Exception as exc:  # noqa: BLE001
             log.warning("Transcription failed: %s", exc)
             return
@@ -111,6 +116,8 @@ class TranscriptionSession:
             "vad_removed": result.get("vad_removed"),
             "ts": int(time.time() * 1000),
         }
+        if result.get("translation"):
+            message["translation"] = result["translation"]
         try:
             await self.browser_ws.send_json(message)
         except Exception:
@@ -123,14 +130,18 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
     """Browser-side websocket: control messages + streaming audio.
 
     Browser -> app messages:
-      {"type": "start", "model": "turbo", "language": "auto"|code}
+      {"type": "start", "model": "turbo", "language": "auto"|code,
+       "translate": bool}
       {"type": "stop"}
+      {"type": "set_translate", "translate": bool}
       binary frames (PCM16 16kHz mono audio chunks)
     App -> browser messages:
       {"type": "status", "status": "loading_model"|"connected"|"disconnected"|"idle", ...}
       {"type": "error"|"warning", "message": "..."}
       {"text": "...", "is_final": true, "language": "en", "duration": 6.5,
-       "vad_removed": 1.4, "ts": 1794106083000}  (one per completed utterance)
+       "vad_removed": 1.4, "translation": "<English, only for non-English
+       segments when translation is enabled>", "ts": 1794106083000}
+       (one per completed utterance)
     """
     await browser_ws.accept()
     session: TranscriptionSession | None = None
@@ -157,6 +168,7 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
             if mtype == "start":
                 model = (data.get("model") or DEFAULT_MODEL).strip()
                 language = (data.get("language") or "auto").strip()
+                translate = bool(data.get("translate", False))
 
                 if model not in MODEL_NAMES:
                     await browser_ws.send_json(
@@ -197,7 +209,23 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
                         )
                         continue
 
-                log.info("Session started (model=%s, language=%s)", model, language)
+                if translate and not translation_available(model):
+                    await browser_ws.send_json(
+                        {
+                            "type": "warning",
+                            "message": (
+                                f"Model {model!r} cannot translate to English. "
+                                "Pick a non-turbo model, or set "
+                                "WHISPER_LIVE_TRANSLATE_MODEL (e.g. large-v3) "
+                                "and restart the app."
+                            ),
+                        }
+                    )
+
+                log.info(
+                    "Session started (model=%s, language=%s, translate=%s)",
+                    model, language, translate,
+                )
                 await browser_ws.send_json(
                     {
                         "type": "status",
@@ -207,8 +235,30 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
                     }
                 )
 
-                session = TranscriptionSession(browser_ws, transcriber, language)
+                session = TranscriptionSession(
+                    browser_ws, transcriber, language, translate=translate
+                )
                 session.start()
+
+            elif mtype == "set_translate":
+                if session is not None:
+                    session.translate = bool(data.get("translate", False))
+                    log.info("Translation to English %s",
+                             "enabled" if session.translate else "disabled")
+                    if session.translate and not translation_available(
+                        session.transcriber.model
+                    ):
+                        await browser_ws.send_json(
+                            {
+                                "type": "warning",
+                                "message": (
+                                    f"Model {session.transcriber.model!r} cannot "
+                                    "translate to English. Pick a non-turbo model, "
+                                    "or set WHISPER_LIVE_TRANSLATE_MODEL (e.g. "
+                                    "large-v3) and restart the app."
+                                ),
+                            }
+                        )
 
             elif mtype == "stop":
                 if session is not None:

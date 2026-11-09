@@ -43,6 +43,27 @@ MODEL_CACHE_DIR = str(
 _FAKE = os.environ.get("WHISPER_LIVE_FAKE_TRANSCRIBER", "").lower() in (
     "1", "true", "yes",
 )
+
+#: Whisper's turbo (large-v3-turbo) dropped the translation decoder, so it
+#: only supports transcribe — its translate task silently returns empty text.
+#: When set, this model is used (lazily loaded, shared) for the translate
+#: pass instead, e.g. WHISPER_LIVE_TRANSLATE_MODEL=large-v3.
+TRANSLATE_FALLBACK_MODEL = os.environ.get(
+    "WHISPER_LIVE_TRANSLATE_MODEL", ""
+).strip()
+
+
+def can_translate(model: str) -> bool:
+    """Whether ``model`` supports the Whisper translate task (turbo does not)."""
+    return "turbo" not in model.lower()
+
+
+def translation_available(model: str) -> bool:
+    """Whether an English translation can be produced for ``model``:
+    natively, or via the WHISPER_LIVE_TRANSLATE_MODEL fallback."""
+    return can_translate(model) or bool(TRANSLATE_FALLBACK_MODEL)
+
+
 _FAKE_WORDS = ["this", "is", "a", "mock", "transcription", "from", "the", "test"]
 _fake_counter = 0
 
@@ -220,17 +241,50 @@ class LocalTranscriber:
         log.info("Model %r ready", self.model)
 
     async def transcribe(
-        self, audio: np.ndarray, language: str | None
+        self,
+        audio: np.ndarray,
+        language: str | None,
+        translate: bool = False,
     ) -> dict:
-        """Transcribe one segment.
+        """Transcribe one segment (optionally also translate to English).
 
-        Returns ``{"text", "language", "duration", "vad_removed"}`` where
-        ``language`` is the detected (or requested) ISO code and
-        ``vad_removed`` is the number of seconds the VAD filter dropped
-        (None when unknown or in fake mode).
+        Returns ``{"text", "language", "duration", "vad_removed",
+        "translation"}`` where ``language`` is the detected (or requested)
+        ISO code, ``vad_removed`` is the number of seconds the VAD filter
+        dropped (None when unknown or in fake mode), and ``translation`` is
+        the English translation when ``translate`` is set, the audio language
+        is not English, and the model supports translate (otherwise None —
+        turbo models need WHISPER_LIVE_TRANSLATE_MODEL, see
+        :data:`TRANSLATE_FALLBACK_MODEL`).
         """
         async with self._lock:
-            return await asyncio.to_thread(self._infer_sync, audio, language)
+            result = await asyncio.to_thread(self._infer_sync, audio, language)
+        if (
+            translate
+            and result.get("text")
+            and (result.get("language") or "").lower() != "en"
+        ):
+            translator = (
+                self
+                if can_translate(self.model)
+                else await get_fallback_translator()
+            )
+            if translator is not None:
+                result["translation"] = await translator.translate(
+                    result.get("language"), audio
+                )
+        else:
+            result["translation"] = None
+        return result
+
+    async def translate(
+        self, language: str | None, audio: np.ndarray
+    ) -> str | None:
+        """Run the translate-to-English pass for one segment with this model."""
+        if _FAKE or (language or "").lower() == "en":
+            return None
+        async with self._lock:
+            return await asyncio.to_thread(self._translate_sync, audio)
 
     def _infer_sync(self, audio: np.ndarray, language: str | None) -> dict:
         global _fake_counter
@@ -242,6 +296,7 @@ class LocalTranscriber:
                 "language": language if language and language != "auto" else None,
                 "duration": duration,
                 "vad_removed": None,
+                "translation": None,
             }
         assert self._transcribe is not None, "model not loaded"
         _vad_capture.vad_removed = None
@@ -254,13 +309,58 @@ class LocalTranscriber:
             live=True,
             options=live_options(),
         )
-        text = to_traditional((result.get("text") or "").strip(), result.get("language"))
         return {
-            "text": text,
-            "language": result.get("language"),
+            "text": to_traditional(
+                (result.get("text") or "").strip(), result.get("language")
+            ),
+            "language": result.get("language") or lang,
             "duration": duration,
             "vad_removed": getattr(_vad_capture, "vad_removed", None),
+            "translation": None,
         }
+
+    def _translate_sync(self, audio: np.ndarray) -> str | None:
+        assert self._transcribe is not None, "model not loaded"
+        # No initial prompt here: the Chinese punctuation prompt is only
+        # useful for the transcribe pass and pulls the translate output back
+        # toward Chinese.
+        translated = self._transcribe.inference(
+            audio=audio.flatten().astype("float32"),
+            task="translate",
+            language="en",
+            verbose=False,
+            live=True,
+            options=live_options()._replace(initial_prompt=None),
+        )
+        return (translated.get("text") or "").strip() or None
+
+
+_fallback_translator: "LocalTranscriber | None" = None
+_fallback_lock = asyncio.Lock()
+
+
+async def get_fallback_translator() -> "LocalTranscriber | None":
+    """Lazily load the WHISPER_LIVE_TRANSLATE_MODEL translator (shared).
+
+    Returns None when the fallback is not configured (or in fake mode), in
+    which case callers skip the translate pass and the UI warns instead.
+    """
+    global _fallback_translator
+    if not TRANSLATE_FALLBACK_MODEL or _FAKE:
+        return None
+    if _fallback_translator is None:
+        async with _fallback_lock:
+            if _fallback_translator is None:
+                log.info(
+                    "Loading fallback translation model %r "
+                    "(WHISPER_LIVE_TRANSLATE_MODEL)",
+                    TRANSLATE_FALLBACK_MODEL,
+                )
+                _fallback_translator = LocalTranscriber(
+                    model=TRANSLATE_FALLBACK_MODEL
+                )
+                await _fallback_translator.ensure_loaded()
+    return _fallback_translator
 
 
 class TranscriberCache:

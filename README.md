@@ -17,6 +17,15 @@ same accuracy while using less memory).
   `small`, `base`, `tiny`) — all run 100% locally via CTranslate2
   (int8 on CPU)
 - **Language selector** (default: auto-detect)
+- **Translate to English** toggle (can be flipped mid-session): non-English
+  segments show the English translation below the original transcript
+  - Chinese output is normalized to Traditional via OpenCC (`s2t`), and a
+    prompt nudges Whisper into emitting full-width Chinese punctuation
+  - `turbo` has no translation decoder, so it can't translate natively.
+    Either pick a non-turbo model, or set
+    `WHISPER_LIVE_TRANSLATE_MODEL=large-v3` (any translate-capable model) to
+    use a second model for the translation pass while turbo does the
+    transcription; without it the UI warns instead of translating
 - **Live utterance segmentation**: audio is buffered in 30 ms blocks and
   segmented on speech activity (RMS volume threshold + vocal-frequency
   check), so the model only runs on actual utterances
