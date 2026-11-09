@@ -240,48 +240,37 @@ class LocalTranscriber:
         )
         log.info("Model %r ready", self.model)
 
-    async def transcribe(
-        self,
-        audio: np.ndarray,
-        language: str | None,
-        translate: bool = False,
-    ) -> dict:
-        """Transcribe one segment (optionally also translate to English).
+    async def transcribe(self, audio: np.ndarray, language: str | None) -> dict:
+        """Transcribe one segment (transcribe task only — fast path).
 
-        Returns ``{"text", "language", "duration", "vad_removed",
-        "translation"}`` where ``language`` is the detected (or requested)
-        ISO code, ``vad_removed`` is the number of seconds the VAD filter
-        dropped (None when unknown or in fake mode), and ``translation`` is
-        the English translation when ``translate`` is set, the audio language
-        is not English, and the model supports translate (otherwise None —
-        turbo models need WHISPER_LIVE_TRANSLATE_MODEL, see
-        :data:`TRANSLATE_FALLBACK_MODEL`).
+        Returns ``{"text", "language", "duration", "vad_removed"}`` where
+        ``language`` is the detected (or requested) ISO code and
+        ``vad_removed`` is the number of seconds the VAD filter dropped
+        (None when unknown or in fake mode).  English translation is a
+        separate pass (:meth:`translate`) so callers can show the transcript
+        immediately and stream the translation once it is ready — the two
+        passes run on different model instances and therefore overlap
+        (turbo transcribing the next utterance while large-v3 translates the
+        previous one).
         """
         async with self._lock:
-            result = await asyncio.to_thread(self._infer_sync, audio, language)
-        if (
-            translate
-            and result.get("text")
-            and (result.get("language") or "").lower() != "en"
-        ):
-            translator = (
-                self
-                if can_translate(self.model)
-                else await get_fallback_translator()
-            )
-            if translator is not None:
-                result["translation"] = await translator.translate(
-                    result.get("language"), audio
-                )
-        else:
-            result["translation"] = None
-        return result
+            return await asyncio.to_thread(self._infer_sync, audio, language)
 
     async def translate(
         self, language: str | None, audio: np.ndarray
     ) -> str | None:
-        """Run the translate-to-English pass for one segment with this model."""
-        if _FAKE or (language or "").lower() == "en":
+        """Run the translate-to-English pass for one segment with this model.
+
+        Independent of :meth:`transcribe` (separate lock; possibly a
+        separate model instance, see :data:`TRANSLATE_FALLBACK_MODEL`), so
+        it can run concurrently.  Returns None for English input or when
+        this model cannot translate; in fake mode it returns a placeholder
+        so the transcribe/translate protocol can be exercised end-to-end
+        without models.
+        """
+        if not can_translate(self.model):
+            return None
+        if (language or "").lower() == "en":
             return None
         async with self._lock:
             return await asyncio.to_thread(self._translate_sync, audio)
@@ -296,7 +285,6 @@ class LocalTranscriber:
                 "language": language if language and language != "auto" else None,
                 "duration": duration,
                 "vad_removed": None,
-                "translation": None,
             }
         assert self._transcribe is not None, "model not loaded"
         _vad_capture.vad_removed = None
@@ -316,10 +304,11 @@ class LocalTranscriber:
             "language": result.get("language") or lang,
             "duration": duration,
             "vad_removed": getattr(_vad_capture, "vad_removed", None),
-            "translation": None,
         }
 
     def _translate_sync(self, audio: np.ndarray) -> str | None:
+        if _FAKE:
+            return f"[en] fake translation #{_fake_counter}"
         assert self._transcribe is not None, "model not loaded"
         # No initial prompt here: the Chinese punctuation prompt is only
         # useful for the transcribe pass and pulls the translate output back
@@ -342,11 +331,13 @@ _fallback_lock = asyncio.Lock()
 async def get_fallback_translator() -> "LocalTranscriber | None":
     """Lazily load the WHISPER_LIVE_TRANSLATE_MODEL translator (shared).
 
-    Returns None when the fallback is not configured (or in fake mode), in
-    which case callers skip the translate pass and the UI warns instead.
+    Returns None when the fallback is not configured, in which case callers
+    skip the translate pass and the UI warns instead.  In fake mode the
+    loaded instance does no real work, so the transcribe/translate protocol
+    can be tested end-to-end without models.
     """
     global _fallback_translator
-    if not TRANSLATE_FALLBACK_MODEL or _FAKE:
+    if not TRANSLATE_FALLBACK_MODEL:
         return None
     if _fallback_translator is None:
         async with _fallback_lock:

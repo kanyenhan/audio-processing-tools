@@ -21,7 +21,13 @@ from fastapi.staticfiles import StaticFiles
 from whisper_ctranslate2.commandline import MODEL_NAMES
 
 from .live_buffer import SpeechSegmenter
-from .transcriber import DEFAULT_MODEL, translation_available, transcriber_cache
+from .transcriber import (
+    DEFAULT_MODEL,
+    can_translate,
+    get_fallback_translator,
+    translation_available,
+    transcriber_cache,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("whisper-live")
@@ -99,30 +105,65 @@ class TranscriptionSession:
             "Transcribing %.1fs segment (model=%s)", duration, self.transcriber.model
         )
         try:
-            result = await self.transcriber.transcribe(
-                segment, self.language, translate=self.translate
-            )
+            result = await self.transcriber.transcribe(segment, self.language)
         except Exception as exc:  # noqa: BLE001
             log.warning("Transcription failed: %s", exc)
             return
         text = result.get("text")
         if not text:
             return
+        language = result.get("language") or self.language
+        ts = int(time.time() * 1000)
         message = {
             "text": text,
             "is_final": True,
-            "language": result.get("language") or self.language,
+            "language": language,
             "duration": result.get("duration", round(duration, 3)),
             "vad_removed": result.get("vad_removed"),
-            "ts": int(time.time() * 1000),
+            "ts": ts,
         }
-        if result.get("translation"):
-            message["translation"] = result["translation"]
+        # Send the transcript immediately; the (slower) English translation
+        # follows as a {"type": "translation"} message once ready.  The two
+        # passes use different model instances, so while large-v3 translates
+        # this segment, turbo is already transcribing the next one.
         try:
             await self.browser_ws.send_json(message)
         except Exception:
             log.info("Browser gone; stopping session")
             self._running = False
+            return
+        if self.translate and (language or "").lower() != "en":
+            translation = await self._translate_segment(language, segment)
+            if translation:
+                try:
+                    await self.browser_ws.send_json(
+                        {"type": "translation", "ts": ts, "text": translation}
+                    )
+                except Exception:
+                    log.info("Browser gone; stopping session")
+                    self._running = False
+
+    async def _translate_segment(
+        self, language: str, segment
+    ) -> str | None:
+        """Run the translate pass, picking the right model for it.
+
+        Uses the session's own model when it supports translate, otherwise
+        the WHISPER_LIVE_TRANSLATE_MODEL fallback (turbo has no translation
+        decoder).  Runs on the translator's own lock, so it overlaps with
+        transcription of other segments.
+        """
+        try:
+            if can_translate(self.transcriber.model):
+                translator = self.transcriber
+            else:
+                translator = await get_fallback_translator()
+                if translator is None:
+                    return None
+            return await translator.translate(language, segment)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Translation failed: %s", exc)
+            return None
 
 
 @app.websocket("/ws")
@@ -139,9 +180,13 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
       {"type": "status", "status": "loading_model"|"connected"|"disconnected"|"idle", ...}
       {"type": "error"|"warning", "message": "..."}
       {"text": "...", "is_final": true, "language": "en", "duration": 6.5,
-       "vad_removed": 1.4, "translation": "<English, only for non-English
-       segments when translation is enabled>", "ts": 1794106083000}
-       (one per completed utterance)
+       "vad_removed": 1.4, "ts": 1794106083000}
+       (one per completed utterance; sent as soon as the fast transcribe
+       pass finishes)
+      {"type": "translation", "ts": 1794106083000, "text": "<English>"}
+       (follow-up, only for non-English segments when translation is
+       enabled; ts matches the segment it belongs to and arrives once the
+       slower translate pass completes)
     """
     await browser_ws.accept()
     session: TranscriptionSession | None = None
@@ -221,6 +266,24 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
                             ),
                         }
                     )
+
+                if translate and not can_translate(model):
+                    # Preload the fallback translator (if configured) before
+                    # starting the session so the first segment's translation
+                    # doesn't pay the model-load time.
+                    try:
+                        await get_fallback_translator()
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("Fallback translator preload failed: %s", exc)
+                        await browser_ws.send_json(
+                            {
+                                "type": "warning",
+                                "message": (
+                                    "Translation model failed to load; "
+                                    "translations will be retried per segment."
+                                ),
+                            }
+                        )
 
                 log.info(
                     "Session started (model=%s, language=%s, translate=%s)",

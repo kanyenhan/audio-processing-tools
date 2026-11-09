@@ -59,7 +59,11 @@ async def main():
          "--host", "127.0.0.1", "--port", "8090", "--log-level", "warning"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        env={**os.environ, "WHISPER_LIVE_FAKE_TRANSCRIBER": "1"},
+        env={
+            **os.environ,
+            "WHISPER_LIVE_FAKE_TRANSCRIBER": "1",
+            "WHISPER_LIVE_TRANSLATE_MODEL": "large-v3",
+        },
     )
     ok = True
     try:
@@ -116,6 +120,54 @@ async def main():
                     assert "vad_removed" in msg, "missing vad_removed field"
                     assert isinstance(msg.get("ts"), int), "missing ts field"
             assert replies >= 1, "no transcript replies received"
+
+            # 2b. translation follow-up: restart with a non-English language
+            #     and translate enabled (fallback translator is faked via
+            #     WHISPER_LIVE_TRANSLATE_MODEL), so a {"type": "translation"}
+            #     message with the same ts must follow the segment message.
+            await ws.send(json.dumps(
+                {"type": "start", "model": "turbo", "language": "zh",
+                 "translate": True}
+            ))
+            deadline = time.time() + 10
+            connected = False
+            while time.time() < deadline:
+                msg = json.loads(await asyncio.wait_for(ws.recv(), 10))
+                if msg.get("type") != "status":
+                    print("control:", msg)
+                    continue
+                if msg.get("status") == "connected":
+                    connected = True
+                    break
+            assert connected, "expected connected status after restart"
+
+            for frame in frame_chunks(sine_pcm16(2.0)):
+                await ws.send(frame)
+            for frame in frame_chunks(silence_pcm16(2.0)):
+                await ws.send(frame)
+
+            segment_ts = None
+            translation = None
+            deadline = time.time() + 20
+            while translation is None and time.time() < deadline:
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), 1.0)
+                except asyncio.TimeoutError:
+                    continue
+                msg = json.loads(raw)
+                if msg.get("type") in ("status", "error", "warning"):
+                    print("control:", msg)
+                    continue
+                if msg.get("type") == "translation":
+                    translation = msg
+                else:
+                    print(f"transcript[{msg.get('is_final', True)}]: {msg.get('text')!r}")
+                    segment_ts = msg.get("ts")
+            assert segment_ts is not None, "no segment message received"
+            assert translation is not None, "no translation follow-up received"
+            print("translation:", translation)
+            assert translation.get("ts") == segment_ts, \
+                "translation ts does not match its segment"
 
             # 3. stop session
             await ws.send(json.dumps({"type": "stop"}))

@@ -26,6 +26,12 @@ same accuracy while using less memory).
     `WHISPER_LIVE_TRANSLATE_MODEL=large-v3` (any translate-capable model) to
     use a second model for the translation pass while turbo does the
     transcription; without it the UI warns instead of translating
+   - Transcription and translation are **pipelined**: each pass runs on its
+     own model instance (separate lock, worker thread), so the original
+     transcript appears as soon as the fast pass finishes and its translation
+     arrives ~1 s later as a follow-up while the next utterance is already
+     being transcribed. The fallback model is preloaded at session start so
+     the first segment doesn't pay the load time
 - **Live utterance segmentation**: audio is buffered in 30 ms blocks and
   segmented on speech activity (RMS volume threshold + vocal-frequency
   check), so the model only runs on actual utterances
@@ -70,8 +76,8 @@ FastAPI app (app/main.py)
    │  gating, emits utterance on ~2s silence / 30s max
    ▼
 whisper-ctranslate2 (app/transcriber.py)   — CTranslate2 + faster-whisper,
-   int8 on CPU, VAD filter (silero), serialized via asyncio lock, each
-   inference runs in a worker thread
+   int8 on CPU, VAD filter (silero), one asyncio lock per model instance
+   (transcribe/translate overlap), each inference runs in a worker thread
 ```
 
 - Browser → app: `{"type":"start","model":"turbo","language":...}`,
@@ -81,7 +87,11 @@ whisper-ctranslate2 (app/transcriber.py)   — CTranslate2 + faster-whisper,
   `{"text": "...", "is_final": true, "language": "en", "duration": 6.5,
   "vad_removed": 1.4, "ts": <epoch ms>}` per completed utterance — rendered
   in the UI as separate paragraphs, each prefixed with
-  `[HH:MM:SS] lang · Xs audio · VAD −Ys`.
+  `[HH:MM:SS] lang · Xs audio · VAD −Ys`. When translation is enabled and
+  the utterance is non-English, the transcript is sent as soon as the fast
+  transcribe pass finishes and the English translation follows a moment
+  later as `{"type": "translation", "ts": <same epoch ms>, "text": "..."}`,
+  which the UI attaches in place under its segment.
 
 The live/VAD tuning follows
 [Run Local Speech-to-Text Transcription](https://simonlermen.substack.com/p/run-local-speech-to-text-transcription):

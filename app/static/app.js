@@ -93,6 +93,21 @@ function handleServerMessage(msg) {
       // status bar, not just the log.
       setStatus("connecting", msg.message);
       break;
+    case "translation":
+      // Follow-up to a segment message (matched by ts): append the English
+      // translation under that segment in place.  Silently ignored if the
+      // user cleared the transcript in the meantime.
+      if (msg.ts && msg.text) {
+        const seg = transcriptEl.querySelector(`.segment[data-ts="${msg.ts}"]`);
+        if (seg) {
+          const tr = document.createElement("div");
+          tr.className = "translation";
+          tr.textContent = msg.text.trim();
+          seg.appendChild(tr);
+          transcriptEl.scrollTop = transcriptEl.scrollHeight;
+        }
+      }
+      break;
     default:
       // Transcript relayed from the whisper server (tolerant parsing).
       appendTranscript(msg);
@@ -145,17 +160,13 @@ function appendTranscript(msg) {
     }
     const seg = document.createElement("div");
     seg.className = "segment";
+    // Translation follow-up messages match their segment on this ts.
+    if (msg.ts) seg.dataset.ts = msg.ts;
     const meta = document.createElement("span");
     meta.className = "meta";
     meta.textContent = segmentMeta(msg);
     seg.appendChild(meta);
     seg.appendChild(document.createTextNode(` ${text.trim()}`));
-    if (msg.translation) {
-      const tr = document.createElement("div");
-      tr.className = "translation";
-      tr.textContent = msg.translation.trim();
-      seg.appendChild(tr);
-    }
     transcriptEl.appendChild(seg);
   }
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
