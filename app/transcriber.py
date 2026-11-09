@@ -122,25 +122,15 @@ _whisper_logger.setLevel(logging.INFO)
 
 
 #: Whisper rarely emits punctuation on its own; an initial prompt nudges the
-#: zh output to include Chinese punctuation (kept in Traditional to match the
-#: s2t-converted transcript shown to the user).
-ZH_INITIAL_PROMPT = "請加上標點符號，例如：你好，這是一個測試？"
+#: output to include full-width Chinese punctuation when the language is zh
+#: (kept in Traditional to match the s2t-converted transcript).  The prompt
+#: is conditional in its own wording, so it is safe to send for every
+#: language, including auto-detect.
+INITIAL_PROMPT = "如果語言是中文(zh)，請用全形標點符號，例如：，。：「」！？等"
 
 
-def zh_initial_prompt(language: str | None) -> str | None:
-    """Return the punctuation nudge for zh, else no initial prompt."""
-    if (language or "").lower() == "zh":
-        return ZH_INITIAL_PROMPT
-    return None
-
-
-def live_options(language: str | None = None) -> TranscriptionOptions:
-    """Transcription options tuned for live streaming (see module docstring).
-
-    ``language`` selects an ``initial_prompt`` — e.g. zh gets a prompt asking
-    for punctuation, since the model otherwise tends to emit unpunctuated
-    text.
-    """
+def live_options() -> TranscriptionOptions:
+    """Transcription options tuned for live streaming (see module docstring)."""
     return TranscriptionOptions(
         beam_size=5,
         best_of=5,
@@ -154,7 +144,7 @@ def live_options(language: str | None = None) -> TranscriptionOptions:
         condition_on_previous_text=False,  # live: avoid looping on prior output
         prompt_reset_on_temperature=0.5,
         temperature=(0.0,),
-        initial_prompt=zh_initial_prompt(language),
+        initial_prompt=INITIAL_PROMPT,
         prefix=None,
         hotwords=None,
         suppress_blank=True,
@@ -262,7 +252,7 @@ class LocalTranscriber:
             language=lang,
             verbose=False,
             live=True,
-            options=live_options(language),
+            options=live_options(),
         )
         text = to_traditional((result.get("text") or "").strip(), result.get("language"))
         return {
