@@ -126,7 +126,7 @@ _whisper_logger.setLevel(logging.INFO)
 #: (kept in Traditional to match the s2t-converted transcript).  The prompt
 #: is conditional in its own wording, so it is safe to send for every
 #: language, including auto-detect.
-INITIAL_PROMPT = "如果語言是中文(zh)，請用全形標點符號，例如：，。：「」！？等"
+INITIAL_PROMPT = "如果語言是中文(zh)，請用全形標點符號，例如：，。：「」！？等，不使用半形標點如：,.:!?[]"
 
 
 def live_options() -> TranscriptionOptions:
