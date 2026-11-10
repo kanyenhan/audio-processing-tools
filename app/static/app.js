@@ -14,10 +14,25 @@ const transcriptEl = document.getElementById("transcript");
 const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
 const logEl = document.getElementById("log");
+const modeLiveBtn = document.getElementById("mode-live");
+const modeFileBtn = document.getElementById("mode-file");
+const livePanel = document.getElementById("live-panel");
+const filePanel = document.getElementById("file-panel");
+const filePathEl = document.getElementById("file-path");
+const fileInput = document.getElementById("file-input");
+const browseBtn = document.getElementById("browse-btn");
+const transcribeBtn = document.getElementById("transcribe-btn");
+const fileStatusEl = document.getElementById("file-status");
 
 let localWs = null;
 let running = false;
 let partialEl = null;
+let appMode = "live";        // "live" | "file"
+let selectedFile = null;     // File object picked via Browse
+let fileBusy = false;        // a file transcription is in flight
+let fileTextEl = null;       // continuous-paragraph elements (file mode)
+let fileTrEl = null;
+let connectedWaiter = null;  // resolved when a "connected" status arrives
 
 let audioCtx = null;
 let mediaStream = null;
@@ -39,6 +54,14 @@ function log(message, cls = "") {
 function setStatus(state, text) {
   statusDot.className = `dot ${state}`;
   statusText.textContent = text;
+}
+
+function resolveConnected() {
+  if (connectedWaiter) {
+    const w = connectedWaiter;
+    connectedWaiter = null;
+    w();
+  }
 }
 
 // ---------- local websocket (browser <-> FastAPI app) ----------
@@ -68,8 +91,16 @@ function handleServerMessage(msg) {
   switch (msg.type) {
     case "status":
       if (msg.status === "connected") {
-        setStatus("recording", `Recording → ${msg.url}`);
+        resolveConnected();
+        if (appMode === "file") {
+          setStatus("connecting", "Model ready");
+        } else {
+          setStatus("recording", `Recording → ${msg.url}`);
+        }
         log(`Transcribing locally with ${msg.url}`);
+      } else if (msg.status === "processing_file") {
+        setStatus("recording", msg.message || "Processing file…");
+        if (msg.message) setFileStatus(msg.message);
       } else if (msg.status === "loading_model") {
         setStatus("connecting", msg.message || "Loading model…");
         log(`Model ${msg.model} is not loaded yet: ${msg.message || "downloading/loading"}`);
@@ -83,6 +114,7 @@ function handleServerMessage(msg) {
       }
       break;
     case "error":
+      resolveConnected();
       setStatus("error", "Error");
       log(msg.message, "err");
       stopAll(msg.message);
@@ -94,19 +126,35 @@ function handleServerMessage(msg) {
       setStatus("connecting", msg.message);
       break;
     case "translation":
-      // Follow-up to a segment message (matched by ts): append the English
-      // translation under that segment in place.  Silently ignored if the
-      // user cleared the transcript in the meantime.
-      if (msg.ts && msg.text) {
-        const seg = transcriptEl.querySelector(`.segment[data-ts="${msg.ts}"]`);
-        if (seg) {
-          const tr = document.createElement("div");
-          tr.className = "translation";
-          tr.textContent = msg.text.trim();
-          seg.appendChild(tr);
-          transcriptEl.scrollTop = transcriptEl.scrollHeight;
+      if (msg.text) {
+        if (appMode === "file") {
+          // File mode: accumulate into one continuous translation paragraph
+          // (arrival order equals segment order).
+          appendFileTranslation(msg.text.trim());
+        } else {
+          // Follow-up to a segment message (matched by ts): append the
+          // English translation under that segment in place.  Silently
+          // ignored if the user cleared the transcript in the meantime.
+          if (msg.ts) {
+            const seg = transcriptEl.querySelector(`.segment[data-ts="${msg.ts}"]`);
+            if (seg) {
+              const tr = document.createElement("div");
+              tr.className = "translation";
+              tr.textContent = msg.text.trim();
+              seg.appendChild(tr);
+              transcriptEl.scrollTop = transcriptEl.scrollHeight;
+            }
+          }
         }
       }
+      break;
+    case "file_done":
+      setBusyControls(false);
+      setStatus("idle", "Idle");
+      setFileStatus(
+        `${msg.filename}: ${msg.segments} segment(s) · ${formatSeconds(msg.duration_s)} audio`
+      );
+      log(`Done: ${msg.filename} — ${msg.segments} segment(s), ${msg.duration_s}s`);
       break;
     default:
       // Transcript relayed from the whisper server (tolerant parsing).
@@ -155,27 +203,83 @@ function appendTranscript(msg) {
       partialEl.remove();
       partialEl = null;
     }
-    if (transcriptEl.firstElementChild?.classList.contains("muted")) {
-      transcriptEl.innerHTML = "";
+    if (appMode === "file") {
+      // File mode: one continuous paragraph, no per-utterance timestamps.
+      appendFileText(text);
+    } else {
+      if (transcriptEl.firstElementChild?.classList.contains("muted")) {
+        transcriptEl.innerHTML = "";
+      }
+      const seg = document.createElement("div");
+      seg.className = "segment";
+      // Translation follow-up messages match their segment on this ts.
+      if (msg.ts) seg.dataset.ts = msg.ts;
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = segmentMeta(msg);
+      seg.appendChild(meta);
+      seg.appendChild(document.createTextNode(` ${text.trim()}`));
+      transcriptEl.appendChild(seg);
     }
-    const seg = document.createElement("div");
-    seg.className = "segment";
-    // Translation follow-up messages match their segment on this ts.
-    if (msg.ts) seg.dataset.ts = msg.ts;
-    const meta = document.createElement("span");
-    meta.className = "meta";
-    meta.textContent = segmentMeta(msg);
-    seg.appendChild(meta);
-    seg.appendChild(document.createTextNode(` ${text.trim()}`));
-    transcriptEl.appendChild(seg);
   }
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
 }
 
-clearBtn.addEventListener("click", () => {
+// ---------- file-mode rendering (continuous paragraphs) ----------
+
+// Text that ends in CJK (incl. CJK/full-width punctuation) — join without a
+// space so Chinese output reads as one flowing paragraph.
+const CJK_TAIL = /[\u2E80-\u9FFF\uF900-\uFAFF\u3000-\u303F\uFF00-\uFFEF]$/;
+
+function appendFileText(text) {
+  if (!fileTextEl) {
+    if (transcriptEl.firstElementChild?.classList.contains("muted")) {
+      transcriptEl.innerHTML = "";
+    }
+    fileTextEl = document.createElement("div");
+    fileTextEl.className = "file-paragraph";
+    transcriptEl.appendChild(fileTextEl);
+  }
+  const prev = fileTextEl.textContent;
+  const sep = prev && !CJK_TAIL.test(prev) ? " " : "";
+  fileTextEl.textContent = prev ? prev + sep + text.trim() : text.trim();
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+
+function appendFileTranslation(text) {
+  if (!fileTextEl) return; // transcript was cleared in the meantime
+  if (!fileTrEl) {
+    fileTrEl = document.createElement("div");
+    fileTrEl.className = "file-translation";
+    transcriptEl.appendChild(fileTrEl);
+  }
+  fileTrEl.textContent += (fileTrEl.textContent ? " " : "") + text;
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+
+function setFileStatus(text, cls) {
+  fileStatusEl.textContent = text || "";
+  fileStatusEl.className = `file-status ${cls || ""}`.trim();
+}
+
+function setBusyControls(busy) {
+  fileBusy = busy;
+  modelSelect.disabled = busy;
+  langSelect.disabled = busy;
+  transcribeBtn.disabled = busy;
+  browseBtn.disabled = busy;
+  filePathEl.disabled = busy;
+  transcribeBtn.textContent = busy ? "Processing…" : "Transcribe";
+}
+
+function resetTranscript() {
   partialEl = null;
+  fileTextEl = null;
+  fileTrEl = null;
   transcriptEl.innerHTML = '<span class="muted">Transcription will appear here…</span>';
-});
+}
+
+clearBtn.addEventListener("click", resetTranscript);
 
 // ---------- audio capture ----------
 
@@ -265,6 +369,119 @@ function stopAudio() {
   }
 }
 
+// ---------- file mode ----------
+
+function ensureWsOpen() {
+  return new Promise((resolve) => {
+    if (localWs && localWs.readyState === WebSocket.OPEN) return resolve();
+    connectLocalWs();
+    const check = () => {
+      if (localWs && localWs.readyState === WebSocket.OPEN) resolve();
+      else setTimeout(check, 100);
+    };
+    check();
+  });
+}
+
+async function startFileTranscript() {
+  if (fileBusy) return;
+  let path = filePathEl.value.trim();
+  let filename = path ? path.split("/").pop() : null;
+
+  if (!path && !selectedFile) {
+    setFileStatus("Enter a file path or choose a file with Browse first.", "warn");
+    return;
+  }
+
+  setBusyControls(true);
+  setStatus("connecting", "Connecting…");
+
+  try {
+    // Browse-picked files are uploaded to the app first; the server then
+    // processes the temp path exactly like a typed one.
+    if (selectedFile) {
+      setFileStatus(`Uploading ${selectedFile.name}…`);
+      const form = new FormData();
+      form.append("file", selectedFile);
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      if (!res.ok) throw new Error(`Upload failed (HTTP ${res.status})`);
+      const uploaded = await res.json();
+      path = uploaded.path;
+      filename = uploaded.filename;
+    }
+
+    await ensureWsOpen();
+    const connected = new Promise((resolve) => { connectedWaiter = resolve; });
+    localWs.send(JSON.stringify({
+      type: "start",
+      model: modelSelect.value,
+      language: langSelect.value,
+      translate: translateChk.checked,
+    }));
+    await connected;
+    if (!fileBusy) return; // an error arrived; already handled
+
+    // Each file renders as fresh continuous paragraphs.
+    resetTranscript();
+    setFileStatus(`Transcribing ${filename}…`);
+    localWs.send(JSON.stringify({ type: "file", path, filename }));
+    log(`Submitting ${filename} for transcription (model=${modelSelect.value}, translate=${translateChk.checked})`);
+  } catch (err) {
+    log(`File transcription failed: ${err.message}`, "err");
+    setStatus("error", "Error");
+    setBusyControls(false);
+    setFileStatus("Failed — see log.", "warn");
+    if (localWs && localWs.readyState === WebSocket.OPEN) {
+      localWs.send(JSON.stringify({ type: "stop" }));
+    }
+  }
+}
+
+function setMode(mode) {
+  if (mode === appMode) return;
+  if (fileBusy) {
+    setFileStatus("Wait for the current file to finish (or press Stop).", "warn");
+    return;
+  }
+  const isLive = mode === "live";
+  appMode = mode;
+  livePanel.hidden = !isLive;
+  filePanel.hidden = isLive;
+  modeLiveBtn.classList.toggle("active", isLive);
+  modeFileBtn.classList.toggle("active", !isLive);
+  if (isLive) {
+    // Leaving file mode: drop the picked/typed file.
+    fileInput.value = "";
+    selectedFile = null;
+    filePathEl.value = "";
+    transcribeBtn.disabled = true;
+    setFileStatus("");
+  } else if (running) {
+    // A live mic session can't share the session with a file run.
+    stopAll(undefined);
+  }
+}
+
+modeLiveBtn.addEventListener("click", () => setMode("live"));
+modeFileBtn.addEventListener("click", () => setMode("file"));
+browseBtn.addEventListener("click", () => { if (!fileBusy) fileInput.click(); });
+fileInput.addEventListener("change", () => {
+  selectedFile = fileInput.files[0] || null;
+  if (selectedFile) {
+    filePathEl.value = selectedFile.name;
+    transcribeBtn.disabled = false;
+  } else {
+    transcribeBtn.disabled = !filePathEl.value.trim();
+  }
+});
+filePathEl.addEventListener("input", () => {
+  // Typing a path supersedes a browsed file (and vice versa).
+  selectedFile = null;
+  fileInput.value = "";
+  transcribeBtn.disabled = fileBusy || !filePathEl.value.trim();
+});
+transcribeBtn.addEventListener("click", startFileTranscript);
+
 // ---------- start / stop ----------
 
 async function start() {
@@ -279,17 +496,8 @@ async function start() {
   // translateChk stays enabled: it can be toggled mid-session.
   setStatus("connecting", "Connecting…");
 
-  if (!localWs || localWs.readyState === WebSocket.CLOSED) {
-    connectLocalWs();
-    // Wait for the socket to open before sending the start command.
-    await new Promise((resolve) => {
-      const check = () => {
-        if (localWs && localWs.readyState === WebSocket.OPEN) resolve();
-        else setTimeout(check, 100);
-      };
-      check();
-    });
-  }
+  // Wait for the socket to open before sending the start command.
+  await ensureWsOpen();
 
   localWs.send(JSON.stringify({ type: "start", model, language, translate }));
 
@@ -325,10 +533,18 @@ function stopAll(reason) {
   modelSelect.disabled = false;
   langSelect.disabled = false;
   stopBtn.disabled = true;
+  setBusyControls(false); // also resets file-mode busy state
 }
 
 startBtn.addEventListener("click", start);
-stopBtn.addEventListener("click", () => stopAll(undefined));
+stopBtn.addEventListener("click", () => {
+  stopAll(undefined);
+  // stopAll only sends "stop" for live runs; send it anyway so a
+  // file-mode run is released too (a no-op when no session is open).
+  if (localWs && localWs.readyState === WebSocket.OPEN) {
+    localWs.send(JSON.stringify({ type: "stop" }));
+  }
+});
 translateChk.addEventListener("change", () => {
   // Toggle mid-session: applies to segments from now on.
   if (localWs && localWs.readyState === WebSocket.OPEN) {

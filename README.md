@@ -32,6 +32,15 @@ same accuracy while using less memory).
      arrives ~1 s later as a follow-up while the next utterance is already
      being transcribed. The fallback model is preloaded at session start so
      the first segment doesn't pay the load time
+- **File mode**: transcribe an audio file instead of the mic — type a path
+  or use **Browse** (the file is uploaded to the app), with the same
+  Model / Language / Translate-to-English settings. The file is decoded
+  server-side (PyAV/ffmpeg: wav, mp3, m4a, flac, ogg, …) and runs through
+  the same segmentation + VAD pipeline; transcripts stream back utterance
+  by utterance and render as **continuous paragraphs** (no per-utterance
+  timestamps), with the English translation as a second continuous
+  paragraph. A typed path is read by the local app, so it can point at any
+  file on your own machine
 - **Live utterance segmentation**: audio is buffered in 30 ms blocks and
   segmented on speech activity (RMS volume threshold + vocal-frequency
   check), so the model only runs on actual utterances
@@ -78,6 +87,12 @@ FastAPI app (app/main.py)
 whisper-ctranslate2 (app/transcriber.py)   — CTranslate2 + faster-whisper,
    int8 on CPU, VAD filter (silero), one asyncio lock per model instance
    (transcribe/translate overlap), each inference runs in a worker thread
+
+File mode: the file is decoded to 16 kHz mono (faster-whisper's
+decode_audio / PyAV) and fed through the same SpeechSegmenter, so the
+whole pipeline (segmentation, VAD, parallel transcribe + pipelined
+translation) is identical to live mode — only the rendering differs
+(continuous paragraphs instead of timestamped segments).
 ```
 
 - Browser → app: `{"type":"start","model":"turbo","language":...}`,
@@ -92,6 +107,12 @@ whisper-ctranslate2 (app/transcriber.py)   — CTranslate2 + faster-whisper,
   transcribe pass finishes and the English translation follows a moment
   later as `{"type": "translation", "ts": <same epoch ms>, "text": "..."}`,
   which the UI attaches in place under its segment.
+- File mode: after `start` (with the chosen model settings) the browser
+  sends `{"type": "file", "path": ..., "filename": ...}` — Browse first
+  uploads via `POST /api/upload`, which returns the temp-file path — and
+  receives one `{"type": "file_done", "filename": ..., "duration_s": ...,
+  "segments": N}` once the whole file has been processed (the per-utterance
+  messages above keep streaming until then).
 
 The live/VAD tuning follows
 [Run Local Speech-to-Text Transcription](https://simonlermen.substack.com/p/run-local-speech-to-text-transcription):

@@ -5,6 +5,10 @@ and streams it over websockets to this FastAPI app.  Audio is segmented
 into utterances (see app.live_buffer) and transcribed in-process with
 whisper-ctranslate2 (CTranslate2 + faster-whisper, see app.transcriber).
 Transcript results are sent back to the browser as JSON.
+
+File mode: an audio file is either referenced by path (or uploaded to
+POST /api/upload) and processed the same way — decoded server-side to
+16 kHz mono PCM16, segmented, and streamed back utterance by utterance.
 """
 
 from __future__ import annotations
@@ -12,12 +16,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import tempfile
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+import numpy as np
+
+from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from faster_whisper.audio import decode_audio
 from whisper_ctranslate2.commandline import MODEL_NAMES
 
 from .live_buffer import SpeechSegmenter
@@ -65,6 +73,10 @@ class TranscriptionSession:
         self.segmenter = SpeechSegmenter()
         self._running = False
         self._task: asyncio.Task | None = None
+        #: True while a file-mode transcription is in flight (one at a time).
+        self._processing_file = False
+        #: Number of segments successfully transcribed this session.
+        self._processed = 0
 
     def start(self) -> None:
         self._running = True
@@ -112,6 +124,7 @@ class TranscriptionSession:
         text = result.get("text")
         if not text:
             return
+        self._processed += 1
         language = result.get("language") or self.language
         ts = int(time.time() * 1000)
         message = {
@@ -166,6 +179,133 @@ class TranscriptionSession:
             return None
 
 
+#: Root for files picked via the UI's "Browse" button; swept on each upload.
+UPLOAD_DIR = Path(tempfile.gettempdir()) / "whisper-live-uploads"
+UPLOAD_MAX_AGE_S = 3600  # delete uploaded files older than 1 hour
+
+
+def _decode_to_pcm16(path: str) -> bytes:
+    """Decode an audio file to 16 kHz mono PCM16 bytes (what the
+    segmenter expects).  faster-whisper's ``decode_audio`` resamples to
+    16 kHz mono and returns float32 in [-1, 1], so convert to int16."""
+    audio = decode_audio(path, sampling_rate=16000)
+    return (np.clip(audio, -1.0, 1.0) * 32767).astype("<i2").tobytes()
+
+
+def _sweep_uploads() -> None:
+    """Remove uploaded files that have not been used recently."""
+    try:
+        cutoff = time.time() - UPLOAD_MAX_AGE_S
+        for old in UPLOAD_DIR.glob("upload_*"):
+            if old.is_file() and old.stat().st_mtime < cutoff:
+                old.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)) -> JSONResponse:
+    """Save a browser-picked audio file to a temp file for file-mode
+    transcription.  Returns the server-side path; the browser then sends
+    ``{"type": "file", "path": …}`` over the websocket like a typed path."""
+    _sweep_uploads()
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = Path(file.filename or "audio").suffix.lower()
+    dest = UPLOAD_DIR / f"upload_{int(time.time() * 1000)}{suffix}"
+    dest.write_bytes(await file.read())
+    return JSONResponse({"path": str(dest), "filename": file.filename or dest.name})
+
+
+async def transcribe_file(
+    browser_ws: WebSocket,
+    session: "TranscriptionSession",
+    path: str,
+    filename: str,
+) -> None:
+    """Decode an audio file and run it through the session's existing
+    pipeline: 16 kHz decode → SpeechSegmenter → per-segment _process (so
+    transcript + pipelined translation follow-ups stream back exactly like
+    live mode), ending with a ``file_done`` message."""
+    file = Path(path).expanduser()
+    if not file.is_file():
+        await browser_ws.send_json(
+            {"type": "error", "message": f"File not found: {path}"}
+        )
+        return
+    if session._processing_file:
+        await browser_ws.send_json(
+            {
+                "type": "warning",
+                "message": "Another file is already being processed.",
+            }
+        )
+        return
+    session._processing_file = True
+    try:
+        await browser_ws.send_json(
+            {
+                "type": "status",
+                "status": "processing_file",
+                "message": f"Decoding {filename}…",
+            }
+        )
+        # Decode (and resample to 16 kHz mono PCM16) in a worker thread.
+        try:
+            pcm16 = await asyncio.to_thread(_decode_to_pcm16, str(file))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Failed to decode %s: %s", path, exc)
+            await browser_ws.send_json(
+                {
+                    "type": "error",
+                    "message": (
+                        f"Could not decode {filename!r}: {exc} "
+                        "(expected wav, mp3, m4a, flac, ogg, …)"
+                    ),
+                }
+            )
+            return
+        duration_s = len(pcm16) / 2 / 16000.0
+        log.info(
+            "Transcribing file %s (%.1fs, model=%s)",
+            filename, duration_s, session.transcriber.model,
+        )
+        # Feed the segmenter in chunks (it re-blocks internally); each
+        # emitted utterance is processed concurrently, same as live mode.
+        chunk = 256 * 1024
+        pending: list[asyncio.Task] = []
+        for i in range(0, len(pcm16), chunk):
+            if not session._running:
+                break
+            for segment in session.segmenter.feed(pcm16[i : i + chunk]):
+                pending.append(asyncio.ensure_future(session._process(segment)))
+        if session._running:
+            # Transcribe any utterance still open at end of file.
+            remaining = session.segmenter.flush()
+            if remaining is not None:
+                pending.append(asyncio.ensure_future(session._process(remaining)))
+        # Wait for all segments (and their translations) so file_done is
+        # accurate and no transcript message arrives after it.
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        await browser_ws.send_json(
+            {
+                "type": "file_done",
+                "filename": filename,
+                "duration_s": round(duration_s, 1),
+                "segments": session._processed,
+            }
+        )
+        if session._processed == 0:
+            await browser_ws.send_json(
+                {
+                    "type": "warning",
+                    "message": f"No speech detected in {filename}.",
+                }
+            )
+    finally:
+        session._processing_file = False
+
+
 @app.websocket("/ws")
 async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
     """Browser-side websocket: control messages + streaming audio.
@@ -173,12 +313,19 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
     Browser -> app messages:
       {"type": "start", "model": "turbo", "language": "auto"|code,
        "translate": bool}
+      {"type": "file", "path": "/path/or/upload/audio.mp3",
+       "filename": "audio.mp3"}   (file mode; after a successful start)
       {"type": "stop"}
       {"type": "set_translate", "translate": bool}
-      binary frames (PCM16 16kHz mono audio chunks)
+      binary frames (PCM16 16kHz mono audio chunks; live mode)
     App -> browser messages:
-      {"type": "status", "status": "loading_model"|"connected"|"disconnected"|"idle", ...}
+      {"type": "status", "status": "loading_model"|"connected"|"disconnected"|"idle"|
+       "processing_file", ...}
       {"type": "error"|"warning", "message": "..."}
+      {"type": "file_done", "filename": "a.mp3", "duration_s": 61.2,
+       "segments": 7}
+       (file mode: sent once the whole file has been fed through the
+       pipeline; the per-utterance messages below keep streaming)
       {"text": "...", "is_final": true, "language": "en", "duration": 6.5,
        "vad_removed": 1.4, "ts": 1794106083000}
        (one per completed utterance; sent as soon as the fast transcribe
@@ -322,6 +469,28 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
                                 ),
                             }
                         )
+
+            elif mtype == "file":
+                # File mode: transcribe (and translate) an audio file that
+                # was either referenced by path or uploaded via /api/upload.
+                # Must follow a successful "start" (same model settings).
+                if session is None:
+                    await browser_ws.send_json(
+                        {"type": "error", "message": "No session; send start first."}
+                    )
+                    continue
+                path = str(data.get("path") or "").strip()
+                if not path:
+                    await browser_ws.send_json(
+                        {"type": "error", "message": "Missing file path."}
+                    )
+                    continue
+                filename = str(data.get("filename") or Path(path).name)
+                # Run in its own task so further messages (stop, set_translate)
+                # are still served while the file is being processed.
+                asyncio.ensure_future(
+                    transcribe_file(browser_ws, session, path, filename)
+                )
 
             elif mtype == "stop":
                 if session is not None:

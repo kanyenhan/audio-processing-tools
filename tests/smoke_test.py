@@ -14,7 +14,9 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
+import wave
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -35,6 +37,15 @@ def sine_pcm16(seconds: float, freq: float = 300.0, amp: float = 0.5) -> bytes:
 
 def silence_pcm16(seconds: float) -> bytes:
     return b"\x00\x00" * int(seconds * SAMPLE_RATE)
+
+
+def write_wav(path, seconds_voice: float, seconds_silence: float) -> None:
+    """Write a 16 kHz mono PCM16 wav: vocal-band tone, then silence."""
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SAMPLE_RATE)
+        w.writeframes(sine_pcm16(seconds_voice) + silence_pcm16(seconds_silence))
 
 
 async def wait_for(port, what):
@@ -168,6 +179,66 @@ async def main():
             print("translation:", translation)
             assert translation.get("ts") == segment_ts, \
                 "translation ts does not match its segment"
+
+            # 2c. file mode: decode + segment + stream, then file_done
+            wav_path = os.path.join(tempfile.gettempdir(), "whisper-live-smoke.wav")
+            write_wav(wav_path, 2.0, 2.0)
+            try:
+                await ws.send(json.dumps(
+                    {"type": "start", "model": "turbo", "language": "en"}
+                ))
+                deadline = time.time() + 10
+                connected = False
+                while time.time() < deadline:
+                    msg = json.loads(await asyncio.wait_for(ws.recv(), 10))
+                    if msg.get("type") == "error":
+                        raise AssertionError(msg)
+                    if msg.get("type") == "status" and msg.get("status") == "connected":
+                        connected = True
+                        break
+                assert connected, "expected connected status for file session"
+
+                await ws.send(json.dumps({"type": "file", "path": wav_path}))
+
+                file_transcripts = 0
+                file_done = None
+                deadline = time.time() + 20
+                while file_done is None and time.time() < deadline:
+                    try:
+                        raw = await asyncio.wait_for(ws.recv(), 1.0)
+                    except asyncio.TimeoutError:
+                        continue
+                    msg = json.loads(raw)
+                    if msg.get("type") in ("status", "error", "warning"):
+                        print("control:", msg)
+                        if msg.get("type") == "error":
+                            ok = False
+                    elif msg.get("type") == "file_done":
+                        file_done = msg
+                    else:
+                        file_transcripts += 1
+                        print(f"file transcript: {msg.get('text')!r}")
+                assert file_done is not None, "no file_done received"
+                print("file_done:", file_done)
+                assert file_done.get("segments", 0) >= 1, "expected >=1 segment"
+                assert file_transcripts >= 1, "no transcript for file"
+                assert file_done.get("duration_s", 0) > 0, "missing duration_s"
+
+                # 2d. file mode error path: nonexistent path
+                await ws.send(json.dumps(
+                    {"type": "file", "path": "/nonexistent/nope.wav"}
+                ))
+                deadline = time.time() + 10
+                got_error = False
+                while time.time() < deadline:
+                    msg = json.loads(await asyncio.wait_for(ws.recv(), 10))
+                    if msg.get("type") == "error" and "File not found" in msg.get("message", ""):
+                        got_error = True
+                        break
+                    print("control:", msg)
+                assert got_error, "expected File-not-found error"
+            finally:
+                os.unlink(wav_path)
 
             # 3. stop session
             await ws.send(json.dumps({"type": "stop"}))

@@ -16,8 +16,29 @@
   </header>
 
   <section class="controls">
-    <button id="start-btn" class="primary">Start</button>
-    <button id="stop-btn" disabled>Stop</button>
+    <div class="field">
+      <span>Mode</span>
+      <div class="mode-toggle">
+        <button id="mode-live" class="mode-btn active">Live (mic)</button>
+        <button id="mode-file" class="mode-btn">File</button>
+      </div>
+    </div>
+
+    <div id="live-panel" class="mode-panel">
+      <button id="start-btn" class="primary">Start</button>
+      <button id="stop-btn" disabled>Stop</button>
+    </div>
+
+    <div id="file-panel" class="mode-panel" hidden>
+      <div class="file-row">
+        <input type="text" id="file-path" placeholder="/path/to/audio.mp3"
+               spellcheck="false" />
+        <button id="browse-btn">Browse…</button>
+        <button id="transcribe-btn" class="primary" disabled>Transcribe</button>
+      </div>
+      <div id="file-status" class="file-status"></div>
+      <input type="file" id="file-input" accept="audio/*" hidden />
+    </div>
 
     <label class="field">
       <span>Model (whisper-ctranslate2)</span>

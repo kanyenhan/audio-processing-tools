@@ -76,6 +76,34 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.primary:hover:not(:disabled) { background: #3d7af0; }
 button.ghost { padding: 4px 12px; font-size: 12px; background: transparent; }
 
+/* Mode toggle (Live / File) */
+.mode-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.mode-btn {
+  border: none;
+  border-radius: 0;
+  padding: 9px 16px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 14px;
+}
+.mode-btn.active { background: var(--accent); color: #fff; }
+.mode-btn:hover:not(.active) { background: #262c3a; color: var(--text); }
+.mode-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Live / File panels */
+.mode-panel { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.mode-panel[hidden] { display: none; } /* display:flex above would override the UA [hidden] rule */
+#file-panel { flex-direction: column; align-items: stretch; gap: 6px; }
+.file-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.file-row input[type="text"] { min-width: 340px; flex: 1; }
+.file-status { font-size: 12px; color: var(--muted); min-height: 14px; }
+.file-status.warn { color: var(--amber); }
+
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field > span { font-size: 12px; color: var(--muted); }
 .field.checkbox { flex-direction: row; align-items: center; gap: 8px; padding-bottom: 12px; }
@@ -149,6 +177,14 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   color: var(--muted);
   font-family: ui-monospace, Menlo, monospace;
   margin-bottom: 2px;
+}
+/* File mode: translation streams in as one continuous paragraph. */
+.transcript .file-translation {
+  margin-top: 10px;
+  padding-left: 12px;
+  border-left: 2px solid var(--accent);
+  color: var(--accent);
+  font-size: 14px;
 }
 
 #log {
