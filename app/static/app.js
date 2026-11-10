@@ -18,6 +18,7 @@ const modeLiveBtn = document.getElementById("mode-live");
 const modeFileBtn = document.getElementById("mode-file");
 const livePanel = document.getElementById("live-panel");
 const filePanel = document.getElementById("file-panel");
+const transcribePanel = document.getElementById("transcribe-panel");
 const filePathEl = document.getElementById("file-path");
 const fileInput = document.getElementById("file-input");
 const browseBtn = document.getElementById("browse-btn");
@@ -447,6 +448,7 @@ function setMode(mode) {
   appMode = mode;
   livePanel.hidden = !isLive;
   filePanel.hidden = isLive;
+  transcribePanel.hidden = isLive;
   modeLiveBtn.classList.toggle("active", isLive);
   modeFileBtn.classList.toggle("active", !isLive);
   if (isLive) {

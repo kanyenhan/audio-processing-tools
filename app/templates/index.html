@@ -15,31 +15,25 @@
     </div>
   </header>
 
+  <div class="mode-bar">
+    <div class="mode-toggle">
+      <button id="mode-live" class="mode-btn active">Live (mic)</button>
+      <button id="mode-file" class="mode-btn">File</button>
+    </div>
+  </div>
+
   <section class="controls">
-    <div class="field">
-      <span>Mode</span>
-      <div class="mode-toggle">
-        <button id="mode-live" class="mode-btn active">Live (mic)</button>
-        <button id="mode-file" class="mode-btn">File</button>
-      </div>
-    </div>
-
-    <div id="live-panel" class="mode-panel">
-      <button id="start-btn" class="primary">Start</button>
-      <button id="stop-btn" disabled>Stop</button>
-    </div>
-
-    <div id="file-panel" class="mode-panel" hidden>
+    <div id="file-panel" hidden>
       <div class="file-row">
         <input type="text" id="file-path" placeholder="/path/to/audio.mp3"
                spellcheck="false" />
         <button id="browse-btn">Browse…</button>
-        <button id="transcribe-btn" class="primary" disabled>Transcribe</button>
+        <input type="file" id="file-input" accept="audio/*" hidden />
       </div>
       <div id="file-status" class="file-status"></div>
-      <input type="file" id="file-input" accept="audio/*" hidden />
     </div>
 
+    <div class="options-row">
     <label class="field">
       <span>Model (whisper-ctranslate2)</span>
       <select id="model">
@@ -52,8 +46,11 @@
       </select>
     </label>
 
-    <label class="field checkbox">
-      <input type="checkbox" id="translate-en" />
+    <label class="field toggle">
+      <span class="switch">
+        <input type="checkbox" id="translate-en" />
+        <span class="switch-slider"></span>
+      </span>
       <span>Translate to English</span>
     </label>
 
@@ -92,6 +89,16 @@
         <option value="sk">Slovenčina</option>
       </select>
     </label>
+    </div>
+
+    <div id="live-panel" class="action-row">
+      <button id="start-btn" class="primary">Start</button>
+      <button id="stop-btn" disabled>Stop</button>
+    </div>
+
+    <div id="transcribe-panel" class="action-row" hidden>
+      <button id="transcribe-btn" class="primary" disabled>Transcribe</button>
+    </div>
   </section>
 
   <section class="transcript-wrap">
