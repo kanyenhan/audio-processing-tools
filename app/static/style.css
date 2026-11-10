@@ -240,6 +240,9 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 
 /* Log console is hidden until the corner toggle turns it on */
 body.logs-hidden #log, body.logs-hidden #splitter { display: none; }
+/* …and with it hidden, lift the panel's bottom edge clear of the fixed
+   Logs pill (pill: bottom 12px + ~34px tall + breathing room). */
+body.logs-hidden .bottom-split { margin-bottom: 56px; }
 
 .transcript-header {
   display: flex;
@@ -249,6 +252,15 @@ body.logs-hidden #log, body.logs-hidden #splitter { display: none; }
   border-bottom: 1px solid var(--border);
   font-size: 13px;
   color: var(--muted);
+}
+
+/* Slim bottom bar of the transcript panel — Export, right-aligned */
+.transcript-footer {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: 5px 10px;
+  border-top: 1px solid var(--border);
 }
 
 .transcript {

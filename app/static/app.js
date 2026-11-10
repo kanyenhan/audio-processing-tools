@@ -26,6 +26,7 @@ const transcribeBtn = document.getElementById("transcribe-btn");
 const fileStatusEl = document.getElementById("file-status");
 const logsVisibleChk = document.getElementById("logs-visible");
 const splitterEl = document.getElementById("splitter");
+const exportBtn = document.getElementById("export-btn");
 
 let localWs = null;
 let running = false;
@@ -226,6 +227,7 @@ function appendTranscript(msg) {
     }
   }
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
+  refreshExportBtn();
 }
 
 // ---------- file-mode rendering (continuous paragraphs) ----------
@@ -247,6 +249,7 @@ function appendFileText(text) {
   const sep = prev && !CJK_TAIL.test(prev) ? " " : "";
   fileTextEl.textContent = prev ? prev + sep + text.trim() : text.trim();
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
+  refreshExportBtn();
 }
 
 function appendFileTranslation(text) {
@@ -258,6 +261,7 @@ function appendFileTranslation(text) {
   }
   fileTrEl.textContent += (fileTrEl.textContent ? " " : "") + text;
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
+  refreshExportBtn();
 }
 
 function setFileStatus(text, cls) {
@@ -280,9 +284,52 @@ function resetTranscript() {
   fileTextEl = null;
   fileTrEl = null;
   transcriptEl.innerHTML = '<span class="muted">Transcription will appear here…</span>';
+  refreshExportBtn();
 }
 
 clearBtn.addEventListener("click", resetTranscript);
+
+// ---------- transcript export ----------
+
+function transcriptIsEmpty() {
+  // Only the empty-state placeholder and/or the in-flight partial remain.
+  return [...transcriptEl.children].every(
+    (n) => n.classList.contains("partial") || n.classList.contains("muted"),
+  );
+}
+
+function refreshExportBtn() {
+  exportBtn.disabled = transcriptIsEmpty();
+}
+refreshExportBtn();
+
+exportBtn.addEventListener("click", () => {
+  const parts = [];
+  for (const node of transcriptEl.children) {
+    // Skip the empty-state placeholder and the tentative in-flight line.
+    if (node.classList.contains("partial") || node.classList.contains("muted")) continue;
+    const text = node.innerText.trim().split("\n").map((l) => l.trim()).join("\n");
+    if (text) parts.push(text);
+  }
+  const content = parts.join("\n\n");
+  if (!content) {
+    log("Nothing to export yet — the transcript is empty", "warn");
+    return;
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const filename = `transcript-${stamp}.txt`;
+  const url = URL.createObjectURL(
+    new Blob([content + "\n"], { type: "text/plain;charset=utf-8" }),
+  );
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a); // required for Firefox
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  log(`Transcript exported → ${filename}`);
+});
 
 // ---------- audio capture ----------
 
