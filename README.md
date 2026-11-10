@@ -58,6 +58,17 @@ same accuracy while using less memory).
 
 ### Run
 
+**One-click start** — creates `.venv` (if missing), installs requirements,
+starts the app and opens the page in your browser:
+
+| Platform | Script |
+| --- | --- |
+| macOS | `scripts/start-macos.sh` |
+| Linux | `scripts/start-linux.sh` |
+| Windows | `scripts\start-windows.bat` (double-click) |
+
+Manual:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate

@@ -1,0 +1,4 @@
+# Keep the start scripts runnable on their target platforms:
+# .sh must stay LF (shebang), .bat must be CRLF (cmd.exe goto labels).
+*.sh   text eol=lf
+*.bat  text eol=crlf
