@@ -45,6 +45,9 @@ same accuracy while using less memory).
   segmented on speech activity (RMS volume threshold + vocal-frequency
   check), so the model only runs on actual utterances
 - **Live transcript** text area fed by the transcriber
+- **Resizable transcript / log split**: drag the divider between the two
+  panels to resize them; a **Logs** slide toggle in the bottom-right corner
+  shows/hides the log console (hidden by default)
 - No audio is stored — frames are processed in memory only
 
 ### Requirements

@@ -6,7 +6,7 @@
   <title>Whisper Live Transcriber</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
-<body>
+<body class="logs-hidden">
   <header>
     <h1>🎙️ Whisper Live Transcriber</h1>
     <div id="status">
@@ -101,15 +101,27 @@
     </div>
   </section>
 
-  <section class="transcript-wrap">
-    <div class="transcript-header">
-      <span>Transcript</span>
-      <button id="clear-btn" class="ghost">Clear</button>
+  <section class="bottom-split">
+    <div class="transcript-wrap">
+      <div class="transcript-header">
+        <span>Transcript</span>
+        <button id="clear-btn" class="ghost">Clear</button>
+      </div>
+      <div id="transcript" class="transcript"><span class="muted">Transcription will appear here…</span></div>
     </div>
-    <div id="transcript" class="transcript"><span class="muted">Transcription will appear here…</span></div>
+
+    <div id="splitter" title="Drag to resize"></div>
+
+    <div id="log"></div>
   </section>
 
-  <div id="log"></div>
+  <label class="logs-toggle" title="Show or hide the log console">
+    <span>Logs</span>
+    <span class="switch sm">
+      <input type="checkbox" id="logs-visible" />
+      <span class="switch-slider"></span>
+    </span>
+  </label>
 
   <script src="/static/app.js"></script>
 </body>

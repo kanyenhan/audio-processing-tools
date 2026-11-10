@@ -24,6 +24,8 @@ const fileInput = document.getElementById("file-input");
 const browseBtn = document.getElementById("browse-btn");
 const transcribeBtn = document.getElementById("transcribe-btn");
 const fileStatusEl = document.getElementById("file-status");
+const logsVisibleChk = document.getElementById("logs-visible");
+const splitterEl = document.getElementById("splitter");
 
 let localWs = null;
 let running = false;
@@ -554,6 +556,56 @@ translateChk.addEventListener("change", () => {
     log(`Translation to English ${translateChk.checked ? "enabled" : "disabled"}`);
   }
 });
+
+// ---------- log console: show/hide toggle + draggable splitter ----------
+
+function setLogsVisible(visible) {
+  document.body.classList.toggle("logs-hidden", !visible);
+}
+setLogsVisible(logsVisibleChk.checked); // HTML default: hidden
+logsVisibleChk.addEventListener("change", () => {
+  setLogsVisible(logsVisibleChk.checked);
+  log(logsVisibleChk.checked ? "Log console shown" : "Log console hidden");
+});
+
+const MIN_TRANSCRIPT_PX = 80; // mirror the CSS min-heights so the clamp
+const MIN_LOG_PX = 44;        // never fights the layout
+let splitDragging = false;
+
+splitterEl.addEventListener("pointerdown", (e) => {
+  if (document.body.classList.contains("logs-hidden")) return;
+  splitDragging = true;
+  splitterEl.classList.add("active");
+  document.body.classList.add("resizing");
+  splitterEl.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+
+splitterEl.addEventListener("pointermove", (e) => {
+  if (!splitDragging) return;
+  const split = splitterEl.parentElement;
+  const rect = split.getBoundingClientRect();
+  const available = rect.height - splitterEl.offsetHeight;
+  const logH = Math.max(
+    MIN_LOG_PX,
+    Math.min(Math.round(rect.bottom - e.clientY), available - MIN_TRANSCRIPT_PX),
+  );
+  // Flex-grow values, so the chosen ratio also survives window resizes.
+  split.style.setProperty("--split-log", String(logH));
+  split.style.setProperty("--split-transcript", String(available - logH));
+});
+
+function endSplitDrag(e) {
+  if (!splitDragging) return;
+  splitDragging = false;
+  splitterEl.classList.remove("active");
+  document.body.classList.remove("resizing");
+  if (splitterEl.hasPointerCapture(e.pointerId)) {
+    splitterEl.releasePointerCapture(e.pointerId);
+  }
+}
+splitterEl.addEventListener("pointerup", endSplitDrag);
+splitterEl.addEventListener("pointercancel", endSplitDrag);
 
 connectLocalWs();
 setStatus("idle", "Idle — press Start (mic permission will be requested)");
