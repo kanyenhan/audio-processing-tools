@@ -1,6 +1,7 @@
 fastapi>=0.110
-uvicorn[standard]>=0.29
+uvicorn[standard]>=0.54
 websockets>=12
 whisper-ctranslate2>=0.5.8
-numpy>=1.26
+numpy>=2.5.4
 opencc-python-reimplemented>=0.1.7
+python-multipart>=0.0.33
