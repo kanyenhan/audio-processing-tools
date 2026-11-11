@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # Start Whisper Live Transcriber (Linux).
+#   0. open a dedicated terminal window (closes when the app quits)
 #   1. create .venv (if missing)
 #   2. install requirements
 #   3. start the app
@@ -10,6 +11,31 @@ set -euo pipefail
 
 # Always run from the repository root, regardless of where invoked.
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# --- 0. dedicated terminal window ----------------------------------------
+# First invocation relaunches itself in a new terminal window and exits,
+# so the app runs in its own window that closes automatically once the
+# process exits.  The guard flag is embedded *inline* in the spawned
+# command on purpose: a fresh terminal does NOT inherit env vars exported
+# by the parent shell.  `exec` makes the window's process the app script
+# itself, so the window dies with the app.  Without a known terminal
+# emulator we fall back to running in place.
+if [ -z "${WHISPER_LIVE_DEDICATED:-}" ]; then
+  SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  CMD="WHISPER_LIVE_DEDICATED=1 exec bash $(printf '%q' "$SCRIPT_PATH")"
+  if command -v gnome-terminal >/dev/null 2>&1; then
+    echo "Opening a dedicated terminal window for Whisper Live Transcriber ..."
+    gnome-terminal --title="Whisper Live Transcriber" -- bash -c "$CMD"
+    exit 0
+  elif command -v x-terminal-emulator >/dev/null 2>&1; then
+    echo "Opening a dedicated terminal window for Whisper Live Transcriber ..."
+    x-terminal-emulator --title="Whisper Live Transcriber" -- bash -c "$CMD"
+    exit 0
+  else
+    echo "notice: no terminal emulator found (gnome-terminal / x-terminal-emulator)" >&2
+    echo "running in this terminal instead (window will not auto-close)" >&2
+  fi
+fi
 
 HOST=127.0.0.1
 PORT=8080
@@ -30,8 +56,10 @@ PY=.venv/bin/python
 
 # --- 2. dependencies -----------------------------------------------------
 echo "Installing requirements (safe to re-run) ..."
-"$PY" -m pip install --quiet --upgrade pip
-"$PY" -m pip install --quiet -r requirements.txt
+# </dev/null: with a TTY on stdin, pip's readline can hang on some
+# systems; no interactive input is needed here.
+"$PY" -m pip install --quiet --upgrade pip </dev/null
+"$PY" -m pip install --quiet -r requirements.txt </dev/null
 
 # --- 4. open the browser once the server answers (background) -----------
 (
@@ -54,3 +82,8 @@ trap 'kill "$OPENER_PID" 2>/dev/null || true' EXIT
 # --- 3. start the app -----------------------------------------------------
 echo "Starting Whisper Live Transcriber at ${URL}"
 "$PY" -m uvicorn app.main:app --host "$HOST" --port "$PORT"
+
+# The app exited (Quit button or Ctrl-C): close this dedicated window.
+echo
+echo "App stopped. Closing this window in 3 seconds..."
+sleep 3

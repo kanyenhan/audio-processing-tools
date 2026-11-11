@@ -36,6 +36,12 @@ start "open-browser" /min powershell -NoProfile -ExecutionPolicy Bypass -Command
 rem --- 3. start the app ---------------------------------------------------
 echo Starting Whisper Live Transcriber at %URL%
 python -m uvicorn app.main:app --host %HOST% --port %PORT%
+
+rem A double-clicked console window closes on its own once the bat reaches
+rem its end (there is no pause) — print a farewell so the moment is visible.
+echo.
+echo App stopped. Closing this window...
+timeout /t 3 /nobreak >nul
 goto :end
 
 :fail

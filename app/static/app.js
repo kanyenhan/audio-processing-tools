@@ -27,9 +27,11 @@ const fileStatusEl = document.getElementById("file-status");
 const logsVisibleChk = document.getElementById("logs-visible");
 const splitterEl = document.getElementById("splitter");
 const exportBtn = document.getElementById("export-btn");
+const quitBtn = document.getElementById("quit-btn");
 
 let localWs = null;
 let running = false;
+let userQuit = false;       // true after the user pressed Quit — no reconnects
 let partialEl = null;
 let appMode = "live";        // "live" | "file"
 let selectedFile = null;     // File object picked via Browse
@@ -77,8 +79,15 @@ function connectLocalWs() {
 
   localWs.onopen = () => log("Connected to app relay");
   localWs.onclose = () => {
-    log("App relay closed; reconnecting in 2s", "warn");
     if (running) stopAudio();
+    if (userQuit) {
+      // The app is shutting down (Quit button) — don't reconnect or we
+      // would spam the dead port forever.
+      setStatus("idle", "App stopped");
+      log("App stopped; not reconnecting");
+      return;
+    }
+    log("App relay closed; reconnecting in 2s", "warn");
     setTimeout(() => { if (!localWs || localWs.readyState > 1) connectLocalWs(); }, 2000);
   };
   localWs.onerror = () => log("App relay error", "err");
@@ -601,6 +610,26 @@ translateChk.addEventListener("change", () => {
   if (localWs && localWs.readyState === WebSocket.OPEN) {
     localWs.send(JSON.stringify({ type: "set_translate", translate: translateChk.checked }));
     log(`Translation to English ${translateChk.checked ? "enabled" : "disabled"}`);
+  }
+});
+
+// ---------- quit the app (closes its start-script window) ----------
+
+quitBtn.addEventListener("click", async () => {
+  if (!confirm("Quit Whisper Live Transcriber?\nThe app will stop and its terminal window will close.")) return;
+  userQuit = true;
+  if (running) stopAudio();
+  setStatus("idle", "Quitting…");
+  quitBtn.disabled = true;
+  try {
+    const res = await fetch("/api/quit", { method: "POST" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    log("App stopped");
+  } catch (err) {
+    log(`Quit failed: ${err}`, "err");
+    setStatus("error", "Quit failed");
+    quitBtn.disabled = false;
+    userQuit = false;
   }
 });
 

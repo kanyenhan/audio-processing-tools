@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import signal
 import tempfile
 import time
 from pathlib import Path
@@ -25,6 +27,7 @@ import numpy as np
 from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 from faster_whisper.audio import decode_audio
 from whisper_ctranslate2.commandline import MODEL_NAMES
 
@@ -214,6 +217,24 @@ async def upload_file(file: UploadFile = File(...)) -> JSONResponse:
     dest = UPLOAD_DIR / f"upload_{int(time.time() * 1000)}{suffix}"
     dest.write_bytes(await file.read())
     return JSONResponse({"path": str(dest), "filename": file.filename or dest.name})
+
+
+def self_terminate() -> None:
+    """Let the /api/quit response flush, then SIGTERM our own process:
+    uvicorn shuts down gracefully (flushes in-flight responses, closes
+    websockets, runs lifespan cleanup) and the start script's terminal
+    window closes automatically once this process exits."""
+    time.sleep(0.2)
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+@app.post("/api/quit")
+async def quit_app() -> JSONResponse:
+    """Stop the app from the UI; the start script's terminal window
+    closes automatically once this process exits."""
+    log.info("Quit requested from UI — shutting down")
+    return JSONResponse({"status": "quitting"},
+                        background=BackgroundTask(self_terminate))
 
 
 async def transcribe_file(

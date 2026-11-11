@@ -44,6 +44,8 @@ same accuracy while using less memory).
 - **Live utterance segmentation**: audio is buffered in 30 ms blocks and
   segmented on speech activity (RMS volume threshold + vocal-frequency
   check), so the model only runs on actual utterances
+- **Quit** button in the header (top-right): gracefully stops the app
+  (`SIGTERM` — the same as `Ctrl-C` in the terminal)
 - **Live transcript** text area fed by the transcriber
 - **Resizable transcript / log split**: drag the divider between the two
   panels to resize them; a **Logs** slide toggle in the bottom-right corner
@@ -66,6 +68,19 @@ starts the app and opens the page in your browser:
 | macOS | `scripts/start-macos.sh` |
 | Linux | `scripts/start-linux.sh` |
 | Windows | `scripts\start-windows.bat` (double-click) |
+
+**Dedicated window (auto-closing)**: on macOS and Linux the start script
+opens the app in its own terminal window (a new Terminal / gnome-terminal
+window) and prints the logs there. When the app quits — **Quit** button or
+`Ctrl-C` — the window closes automatically after a short farewell. This
+relies on your terminal's "close the window when the shell exits" setting
+being at its default. A `WHISPER_LIVE_DEDICATED` guard prevents relaunch
+loops (re-running the script just opens one fresh window). On Windows a
+double-clicked console window already closes on its own when the bat ends.
+
+> Caveat: if you run `uvicorn` directly in your own terminal (bypassing the
+> start script), **Quit** stops the app and returns you to your shell
+> prompt — we intentionally never kill a user-owned shell.
 
 Manual:
 
