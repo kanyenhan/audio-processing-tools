@@ -616,7 +616,7 @@ translateChk.addEventListener("change", () => {
 // ---------- quit the app (closes its start-script window) ----------
 
 quitBtn.addEventListener("click", async () => {
-  if (!confirm("Quit Whisper Live Transcriber?\nThe app will stop and its terminal window will close.")) return;
+  if (!confirm("Quit Whisper Live Transcriber?\nThe app will stop and its terminal window and browser tab will close.")) return;
   userQuit = true;
   if (running) stopAudio();
   setStatus("idle", "Quitting…");
@@ -625,6 +625,12 @@ quitBtn.addEventListener("click", async () => {
     const res = await fetch("/api/quit", { method: "POST" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     log("App stopped");
+    // Best-effort self-close: works when this tab was opened by a script
+    // (window.open). For a tab opened by the start script's
+    // `open`/`xdg-open`, browsers silently block window.close(), so the
+    // start script (macOS) also closes the matching tab once the server
+    // has exited.
+    window.close();
   } catch (err) {
     log(`Quit failed: ${err}`, "err");
     setStatus("error", "Quit failed");

@@ -81,7 +81,41 @@ trap 'kill "$OPENER_PID" 2>/dev/null || true' EXIT
 echo "Starting Whisper Live Transcriber at ${URL}"
 "$PY" -m uvicorn app.main:app --host "$HOST" --port "$PORT"
 
-# The app exited (Quit button or Ctrl-C): close this dedicated window.
+# The app exited (Quit button or Ctrl-C): close the browser tab the app
+# opened, then close this dedicated window.  window.close() from the page
+# is blocked by browsers for tabs not opened by a script, so we close the
+# matching tab from here via AppleScript — but only in browsers that are
+# already running (never launching one just to check).  Missing browsers,
+# or a denied Automation permission, are not a problem: `|| true` keeps
+# the shutdown going.  The first run triggers a one-time macOS prompt
+# ("Terminal is trying to control <browser>"); click Allow once.
+osascript - "$URL" <<'APPLESCRIPT' || true
+on run argv
+  set urlPrefix to item 1 of argv
+  set targetApps to {"Safari", "Google Chrome", "Chromium", "Brave Browser", "Microsoft Edge", "Vivaldi"}
+  repeat with appName in targetApps
+    try
+      if application appName is running then
+        -- (appName) needs parens in a dynamic tell, and tabs are addressed
+        -- via a fetched list (indexed refs like "tab i of w" do not parse
+        -- there); closing in reverse order keeps indices valid
+        tell application (appName)
+          repeat with w in (get windows)
+            set tabList to (get tabs of w)
+            repeat with i from (count of tabList) to 1 by -1
+              set t to (item i of tabList)
+              if ((URL of t) as text) starts with urlPrefix then
+                close t
+              end if
+            end repeat
+          end repeat
+        end tell
+      end if
+    end try
+  end repeat
+end run
+APPLESCRIPT
+
 echo
 echo "App stopped. Closing this window in 3 seconds..."
 sleep 3

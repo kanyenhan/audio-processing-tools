@@ -45,7 +45,8 @@ same accuracy while using less memory).
   segmented on speech activity (RMS volume threshold + vocal-frequency
   check), so the model only runs on actual utterances
 - **Quit** button in the header (top-right): gracefully stops the app
-  (`SIGTERM` — the same as `Ctrl-C` in the terminal)
+  (`SIGTERM` — the same as `Ctrl-C` in the terminal) and closes the app's
+  browser tab (on macOS, via AppleScript; see "Dedicated window" below)
 - **Live transcript** text area fed by the transcriber
 - **Resizable transcript / log split**: drag the divider between the two
   panels to resize them; a **Logs** slide toggle in the bottom-right corner
@@ -77,6 +78,17 @@ relies on your terminal's "close the window when the shell exits" setting
 being at its default. A `WHISPER_LIVE_DEDICATED` guard prevents relaunch
 loops (re-running the script just opens one fresh window). On Windows a
 double-clicked console window already closes on its own when the bat ends.
+
+**Browser tab auto-close**: browsers only let a page close a tab it opened
+itself (`window.close()` is blocked for ordinary tabs), so the macOS start
+script closes the app's tab from the shell via AppleScript — any tab whose
+URL is the app's URL, in whichever of the common browsers (Safari, Chrome,
+Chromium, Brave, Edge, Vivaldi) are already running. Nothing launches, and
+a missing browser or a denied permission is skipped silently. The first
+time, macOS shows a one-time Automation prompt ("Terminal is trying to
+control \<browser\>") — click **Allow** once. On Linux/Windows, or when
+running `uvicorn` directly (bypassing the start script), the tab is left
+open showing "App stopped" and can be closed manually.
 
 > Caveat: if you run `uvicorn` directly in your own terminal (bypassing the
 > start script), **Quit** stops the app and returns you to your shell
