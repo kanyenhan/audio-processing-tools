@@ -29,6 +29,17 @@ const splitterEl = document.getElementById("splitter");
 const exportBtn = document.getElementById("export-btn");
 const quitBtn = document.getElementById("quit-btn");
 
+const advancedBtn = document.getElementById("advanced-btn");
+const advancedPanel = document.getElementById("advanced-panel");
+const advancedCloseBtn = document.getElementById("advanced-close");
+const llmUrlEl = document.getElementById("llm-url");
+const llmModelSel = document.getElementById("llm-model");
+const llmFetchModelsBtn = document.getElementById("llm-fetch-models");
+const summarizeBtn = document.getElementById("summarize-btn");
+const translateBtn = document.getElementById("translate-btn");
+const llmStatusEl = document.getElementById("llm-status");
+const llmOutputEl = document.getElementById("llm-output");
+
 let localWs = null;
 let running = false;
 let userQuit = false;       // true after the user pressed Quit — no reconnects
@@ -637,6 +648,147 @@ quitBtn.addEventListener("click", async () => {
     quitBtn.disabled = false;
     userQuit = false;
   }
+});
+
+
+// ---------- advanced panel: LLM post-processing (summarize / translate) ----------
+
+const LLM_URL_KEY = "whisper-live.llm-url";
+const LLM_MODEL_KEY = "whisper-live.llm-model";
+let llmBusy = false;
+
+try {
+  const savedUrl = localStorage.getItem(LLM_URL_KEY);
+  if (savedUrl) llmUrlEl.value = savedUrl;
+} catch { /* ignore (private mode etc.) */ }
+
+function setAdvancedOpen(open) {
+  advancedPanel.classList.toggle("open", open);
+  advancedPanel.setAttribute("aria-hidden", String(!open));
+}
+
+function setLlmStatus(text, cls) {
+  llmStatusEl.textContent = text || "";
+  llmStatusEl.className = ("file-status " + (cls || "")).trim();
+}
+
+advancedBtn.addEventListener("click", () => {
+  setAdvancedOpen(!advancedPanel.classList.contains("open"));
+});
+advancedCloseBtn.addEventListener("click", () => setAdvancedOpen(false));
+
+// Raw transcript text for the LLM: live-mode segments without their meta
+// line and without whisper translation children, or the file-mode continuous
+// paragraph.  Skips the in-flight partial and the empty placeholder.
+function collectTranscriptText() {
+  const parts = [];
+  for (const node of transcriptEl.children) {
+    if (node.classList.contains("partial") || node.classList.contains("muted")) continue;
+    if (node.classList.contains("file-translation")) continue;
+    let text;
+    if (node.classList.contains("segment")) {
+      const clone = node.cloneNode(true);
+      clone.querySelectorAll(".meta, .translation").forEach((el) => el.remove());
+      text = clone.textContent.trim();
+    } else {
+      text = node.textContent.trim();
+    }
+    if (text) parts.push(text);
+  }
+  return parts.join("\n\n");
+}
+
+async function fetchLlmModels() {
+  const url = llmUrlEl.value.trim();
+  if (!url) {
+    setLlmStatus("Enter the LLM API URL first.", "warn");
+    return;
+  }
+  try { localStorage.setItem(LLM_URL_KEY, url); } catch { /* ignore */ }
+  llmFetchModelsBtn.disabled = true;
+  setLlmStatus("Fetching model list...");
+  try {
+    const res = await fetch("/api/llm/models?url=" + encodeURIComponent(url));
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "HTTP " + res.status);
+    const models = data.models || [];
+    if (!models.length) throw new Error("Server returned no models.");
+    llmModelSel.innerHTML = "";
+    for (const id of models) {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = id;
+      llmModelSel.appendChild(opt);
+    }
+    try {
+      const saved = localStorage.getItem(LLM_MODEL_KEY);
+      if (saved && models.includes(saved)) llmModelSel.value = saved;
+    } catch { /* ignore */ }
+    setLlmStatus(models.length + " model(s) found.");
+    log("LLM: " + models.length + " model(s) from " + url);
+  } catch (err) {
+    setLlmStatus("Fetch failed: " + err.message, "err");
+    log("LLM model fetch failed: " + err.message, "err");
+  } finally {
+    llmFetchModelsBtn.disabled = false;
+  }
+}
+
+async function runLlmAction(action) {
+  if (llmBusy) return;
+  const url = llmUrlEl.value.trim();
+  const model = llmModelSel.value;
+  if (!url) {
+    setLlmStatus("Enter the LLM API URL first.", "warn");
+    return;
+  }
+  if (!model) {
+    setLlmStatus("Fetch the model list and pick a model first.", "warn");
+    return;
+  }
+  const text = collectTranscriptText();
+  if (!text) {
+    setLlmStatus("The transcript is empty - nothing to process.", "warn");
+    return;
+  }
+  llmBusy = true;
+  summarizeBtn.disabled = true;
+  translateBtn.disabled = true;
+  llmOutputEl.hidden = true;
+  const verb = action === "summarize" ? "Summarizing" : "Translating";
+  setLlmStatus(verb + " with " + model + "... (local models can take a while)");
+  log("LLM " + action + ": " + text.length + " chars to " + model + " @ " + url);
+  const started = Date.now();
+  try {
+    const res = await fetch("/api/llm/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, model, action, text }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "HTTP " + res.status);
+    const secs = ((Date.now() - started) / 1000).toFixed(1);
+    llmOutputEl.textContent = (data.text || "").trim() || "(empty response)";
+    llmOutputEl.hidden = false;
+    setLlmStatus("Done in " + secs + "s.");
+    log("LLM " + action + " done (" + secs + "s)");
+  } catch (err) {
+    setLlmStatus(action + " failed: " + err.message, "err");
+    log("LLM " + action + " failed: " + err.message, "err");
+  } finally {
+    llmBusy = false;
+    summarizeBtn.disabled = false;
+    translateBtn.disabled = false;
+  }
+}
+
+summarizeBtn.addEventListener("click", () => runLlmAction("summarize"));
+translateBtn.addEventListener("click", () => runLlmAction("translate"));
+llmFetchModelsBtn.addEventListener("click", fetchLlmModels);
+llmModelSel.addEventListener("change", () => {
+  try {
+    if (llmModelSel.value) localStorage.setItem(LLM_MODEL_KEY, llmModelSel.value);
+  } catch { /* ignore */ }
 });
 
 // ---------- log console: show/hide toggle + draggable splitter ----------

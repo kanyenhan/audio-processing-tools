@@ -14,6 +14,7 @@
         <span id="status-dot" class="dot idle"></span>
         <span id="status-text">Idle</span>
       </div>
+      <button id="advanced-btn" title="Send the transcript to a local LLM (summarize / translate)">Advanced</button>
       <button id="quit-btn" class="danger"
               title="Stop the app (its start-script window and browser tab close with it)">Quit</button>
     </div>
@@ -130,6 +131,33 @@
       <span class="switch-slider"></span>
     </span>
   </label>
+
+  <aside id="advanced-panel" aria-hidden="true">
+    <div class="advanced-header">
+      <span>Advanced - LLM post-processing</span>
+      <button id="advanced-close" class="ghost" title="Close">x</button>
+    </div>
+    <div class="advanced-body">
+      <label class="field">
+        <span>LLM API URL (OpenAI-compatible)</span>
+        <input type="text" id="llm-url" value="http://127.0.0.1:1234/v1" spellcheck="false" />
+      </label>
+      <div class="advanced-model-row">
+        <label class="field grow">
+          <span>Model</span>
+          <select id="llm-model"><option value="">Fetch the model list first</option></select>
+        </label>
+        <button id="llm-fetch-models" title="Get the model list from the LLM server">Fetch models</button>
+      </div>
+      <p class="advanced-hint">Summarize / Translate send the transcript below to the selected model with a matching prompt. The reply appears here.</p>
+      <div class="advanced-actions">
+        <button id="summarize-btn" class="primary">Summarize</button>
+        <button id="translate-btn" class="primary">Translate</button>
+      </div>
+      <div id="llm-status" class="file-status"></div>
+      <div id="llm-output" class="llm-output" hidden></div>
+    </div>
+  </aside>
 
   <script src="/static/app.js"></script>
 </body>

@@ -17,14 +17,23 @@ import asyncio
 import json
 import logging
 import os
+import re
 import signal
 import tempfile
 import time
+import urllib.request
 from pathlib import Path
 
 import numpy as np
 
-from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    File,
+    HTTPException,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
@@ -217,6 +226,115 @@ async def upload_file(file: UploadFile = File(...)) -> JSONResponse:
     dest = UPLOAD_DIR / f"upload_{int(time.time() * 1000)}{suffix}"
     dest.write_bytes(await file.read())
     return JSONResponse({"path": str(dest), "filename": file.filename or dest.name})
+
+
+
+# ---------------------------------------------------------------------------
+# Advanced: LLM post-processing of the transcript (summarize / translate)
+# via any local OpenAI-compatible server (e.g. LM Studio at 127.0.0.1:1234).
+# The app proxies the calls so the browser never makes cross-origin requests
+# to the LLM server (no CORS concerns) and the UI stays single-origin.
+# ---------------------------------------------------------------------------
+
+LLM_PROMPTS = {
+    "summarize": (
+        "You are a helpful assistant. Write a concise summary of the "
+        "transcription provided by the user, preserving the key facts and "
+        "decisions. Reply with the summary only - no preamble or commentary."
+    ),
+    "translate": (
+        "You are a professional translator. Translate the transcription "
+        "provided by the user into English. Keep the original meaning, tone "
+        "and punctuation as far as possible. Reply with the translation only "
+        "- no preamble or commentary."
+    ),
+}
+
+
+def _norm_llm_base_url(url: str) -> str:
+    """Validate/normalize the OpenAI-compatible API base URL (e.g. .../v1)."""
+    base = (url or "").strip().rstrip("/")
+    if not re.match(r"^https?://", base, re.IGNORECASE):
+        raise HTTPException(
+            status_code=400, detail="LLM URL must start with http:// or https://."
+        )
+    return base
+
+
+def _http_json(
+    method: str, url: str, payload: dict | None = None, timeout: float = 10.0
+) -> dict:
+    """Blocking JSON request (always run via asyncio.to_thread).  Stdlib
+    urllib only - no extra dependency for talking to a local LLM server."""
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {"Accept": "application/json"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+@app.get("/api/llm/models")
+async def llm_models(url: str) -> JSONResponse:
+    """Proxy the OpenAI-compatible ``/models`` endpoint of a local LLM
+    server so the UI can offer its models as a drop-down."""
+    base = _norm_llm_base_url(url)
+    try:
+        data = await asyncio.to_thread(_http_json, "GET", f"{base}/models")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Cannot reach LLM server at {base}: {exc}"
+        ) from exc
+    models = [str(m.get("id")) for m in data.get("data", []) if m.get("id")]
+    log.info("LLM models from %s: %d", base, len(models))
+    return JSONResponse({"models": models})
+
+
+@app.post("/api/llm/run")
+async def llm_run(payload: dict) -> JSONResponse:
+    """Send the transcript to the local LLM with a summarize/translate
+    prompt and return its reply.  Generous timeout: a local large model
+    can take minutes to generate."""
+    action = str(payload.get("action") or "").strip()
+    model = str(payload.get("model") or "").strip()
+    text = str(payload.get("text") or "").strip()
+    if action not in LLM_PROMPTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown action {action!r}; use summarize or translate.",
+        )
+    if not model:
+        raise HTTPException(status_code=400, detail="Missing LLM model.")
+    if not text:
+        raise HTTPException(status_code=400, detail="Transcript is empty.")
+    base = _norm_llm_base_url(str(payload.get("url") or ""))
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": LLM_PROMPTS[action]},
+            {"role": "user", "content": f"Transcription:\n{text}"},
+        ],
+        "temperature": 0.3,
+        "stream": False,
+    }
+    try:
+        data = await asyncio.to_thread(
+            _http_json, "POST", f"{base}/chat/completions", body, 600.0
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}") from exc
+    try:
+        result_text = data["choices"][0]["message"]["content"] or ""
+    except (KeyError, IndexError, TypeError):
+        raise HTTPException(
+            status_code=502, detail=f"Unexpected LLM response: {str(data)[:200]}"
+        ) from None
+    log.info(
+        "LLM %s via %s/%s: %d chars in, %d out",
+        action, base, model, len(text), len(result_text),
+    )
+    return JSONResponse({"action": action, "model": model, "text": result_text})
 
 
 def self_terminate() -> None:
