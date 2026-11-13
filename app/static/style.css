@@ -8,6 +8,7 @@
   --green: #3ecf8e;
   --red: #ff5d5d;
   --amber: #ffb454;
+  --advanced-w: min(400px, 45vw); /* open width of the Advanced side panel */
 }
 
 * { box-sizing: border-box; }
@@ -198,7 +199,7 @@ input[type="text"], select {
 #whisper-url { min-width: 320px; }
 input:focus, select:focus { outline: none; border-color: var(--accent); }
 
-/* Bottom split: transcript panel + draggable divider + log console.
+/* Bottom split: transcript row + draggable divider + log console.
    The two flex-grow custom properties are the size ratio; app.js rewrites
    them while the divider is dragged. */
 .bottom-split {
@@ -211,15 +212,32 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   --split-log: 1;
 }
 
-.transcript-wrap {
+/* Transcript row: the transcript panel plus the Advanced side panel.
+   The panel is a flex sibling of the transcript, so its height always
+   matches the Transcript area and opening it only narrows the
+   transcript — the header / mode bar / controls above never shift. */
+.transcript-row {
   flex: var(--split-transcript) 1 0;
+  min-height: 80px; /* explicit floor (replaces the min-height:auto min-content clamp) */
+  min-width: 0;
+  display: flex;
+}
+
+.transcript-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--panel);
   overflow: hidden;
-  min-height: 80px;
+  min-height: 0;
+  transition: border-radius 0.25s ease;
+}
+/* The panel's rounded edge takes over the right corners while it is open */
+.transcript-row.adv-open .transcript-wrap {
+  border-radius: 10px 0 0 10px;
 }
 
 #splitter {
@@ -344,28 +362,35 @@ body.resizing { user-select: none; }
 .switch.sm .switch-slider::before { width: 12px; height: 12px; }
 .switch.sm input:checked + .switch-slider::before { transform: translateX(12px); }
 
-/* Advanced: slide-out panel from the right edge (LLM post-processing) */
+/* Advanced: side panel (LLM post-processing).  It is a flex sibling of
+   the transcript inside .transcript-row: opening it animates its width
+   from 0 to 400px so the transcript narrows to fit, while the panel's
+   height always matches the Transcript area (no fixed overlay, no
+   shifting of the controls above). */
 #advanced-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 100vh;
-  width: min(400px, 92vw);
+  flex: 0 1 auto;
+  width: 0;
+  overflow: hidden;
   background: var(--panel);
-  border-left: 1px solid var(--border);
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
-  transform: translateX(100%);
-  transition: transform 0.25s ease;
-  z-index: 50;
+  border-left: 0 solid var(--border);
+  border-radius: 0 10px 10px 0;
   display: flex;
   flex-direction: column;
+  transition: width 0.25s ease, border-width 0.25s ease;
 }
-#advanced-panel.open { transform: translateX(0); }
+#advanced-panel.open {
+  width: var(--advanced-w);
+  border-left-width: 1px;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+}
+/* Fixed inner width (the panel's open width) so the content never
+   reflows while the panel's width animates 0 -> 400px. */
 .advanced-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  width: var(--advanced-w);
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);
   font-size: 14px;
@@ -374,6 +399,7 @@ body.resizing { user-select: none; }
 .advanced-body {
   flex: 1;
   min-height: 0;
+  width: var(--advanced-w);
   overflow-y: auto;
   display: flex;
   flex-direction: column;

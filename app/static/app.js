@@ -685,6 +685,9 @@ try {
 function setAdvancedOpen(open) {
   advancedPanel.classList.toggle("open", open);
   advancedPanel.setAttribute("aria-hidden", String(!open));
+  // Row class: CSS uses it to square the transcript's right corners
+  // while the panel is open
+  advancedPanel.parentElement.classList.toggle("adv-open", open);
 }
 
 function setLlmStatus(text, cls) {
