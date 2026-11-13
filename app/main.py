@@ -236,19 +236,67 @@ async def upload_file(file: UploadFile = File(...)) -> JSONResponse:
 # to the LLM server (no CORS concerns) and the UI stays single-origin.
 # ---------------------------------------------------------------------------
 
-LLM_PROMPTS = {
-    "summarize": (
-        "You are a helpful assistant. Write a concise summary of the "
-        "transcription provided by the user, preserving the key facts and "
-        "decisions. Reply with the summary only - no preamble or commentary."
-    ),
-    "translate": (
-        "You are a professional translator. Translate the transcription "
-        "provided by the user into English. Keep the original meaning, tone "
-        "and punctuation as far as possible. Reply with the translation only "
-        "- no preamble or commentary."
-    ),
+#: Target-language names for the LLM prompts.  Mirrors the codes of the
+#: UI language dropdowns; zh maps to Traditional Chinese to match the
+#: app opencc output convention.
+LLM_LANGUAGES = {
+    "en": "English",
+    "zh": "Traditional Chinese",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "nl": "Dutch",
+    "ru": "Russian",
+    "uk": "Ukrainian",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "hi": "Hindi",
+    "ar": "Arabic",
+    "tr": "Turkish",
+    "pl": "Polish",
+    "vi": "Vietnamese",
+    "id": "Indonesian",
+    "th": "Thai",
+    "sv": "Swedish",
+    "da": "Danish",
+    "no": "Norwegian",
+    "fi": "Finnish",
+    "cs": "Czech",
+    "el": "Greek",
+    "he": "Hebrew",
+    "ro": "Romanian",
+    "hu": "Hungarian",
+    "sk": "Slovak",
 }
+
+
+def _llm_prompt(action: str, language: str) -> str:
+    """Build the system prompt for an LLM post-processing action.
+    language is a UI language code or auto: summarize writes in the
+    chosen language (auto = the language of the transcription), translate
+    targets the chosen language (auto = English, the historical
+    default)."""
+    if language == "auto":
+        target = "the same language as the transcription"
+        if action == "translate":
+            target = "English"
+    else:
+        target = LLM_LANGUAGES[language]
+    if action == "summarize":
+        return (
+            "You are a helpful assistant. Write a concise summary of the "
+            "transcription provided by the user, preserving the key facts "
+            f"and decisions. Write the summary in {target}. "
+            "Reply with the summary only - no preamble or commentary."
+        )
+    return (
+        "You are a professional translator. Translate the transcription "
+        f"provided by the user into {target}. Keep the original meaning, "
+        "tone and punctuation as far as possible. Reply with the "
+        "translation only - no preamble or commentary."
+    )
 
 
 def _norm_llm_base_url(url: str) -> str:
@@ -299,10 +347,15 @@ async def llm_run(payload: dict) -> JSONResponse:
     action = str(payload.get("action") or "").strip()
     model = str(payload.get("model") or "").strip()
     text = str(payload.get("text") or "").strip()
-    if action not in LLM_PROMPTS:
+    language = str(payload.get("language") or "auto").strip() or "auto"
+    if action not in ("summarize", "translate"):
         raise HTTPException(
             status_code=400,
             detail=f"Unknown action {action!r}; use summarize or translate.",
+        )
+    if language != "auto" and language not in LLM_LANGUAGES:
+        raise HTTPException(
+            status_code=400, detail=f"Unknown language {language!r}."
         )
     if not model:
         raise HTTPException(status_code=400, detail="Missing LLM model.")
@@ -312,7 +365,7 @@ async def llm_run(payload: dict) -> JSONResponse:
     body = {
         "model": model,
         "messages": [
-            {"role": "system", "content": LLM_PROMPTS[action]},
+            {"role": "system", "content": _llm_prompt(action, language)},
             {"role": "user", "content": f"Transcription:\n{text}"},
         ],
         "temperature": 0.3,
@@ -331,8 +384,8 @@ async def llm_run(payload: dict) -> JSONResponse:
             status_code=502, detail=f"Unexpected LLM response: {str(data)[:200]}"
         ) from None
     log.info(
-        "LLM %s via %s/%s: %d chars in, %d out",
-        action, base, model, len(text), len(result_text),
+        "LLM %s via %s/%s (lang=%s): %d chars in, %d out",
+        action, base, model, language, len(text), len(result_text),
     )
     return JSONResponse({"action": action, "model": model, "text": result_text})
 

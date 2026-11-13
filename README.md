@@ -50,7 +50,9 @@ same accuracy while using less memory).
 - **Advanced** panel (header, left of Quit): slide-out panel that sends the
   transcript to a local OpenAI-compatible LLM (e.g. LM Studio at
   `http://127.0.0.1:1234/v1`) - enter the server URL, fetch its model list,
-  pick a model, then Summarize or Translate the transcript
+  pick a model, choose the **output language** (the same options as the main
+  page's Language dropdown; applies to both Summarize and Translate), then
+  Summarize or Translate the transcript
 - **Live transcript** text area fed by the transcriber
 - **Resizable transcript / log split**: drag the divider between the two
   panels to resize them; a **Logs** slide toggle in the bottom-right corner

@@ -149,6 +149,13 @@
         </label>
         <button id="llm-fetch-models" title="Get the model list from the LLM server">Fetch models</button>
       </div>
+      <label class="field">
+        <span>Output language (summary / translation)</span>
+        <!-- Options are copied from the main page's #language select in
+             app.js so the two lists can never drift apart. -->
+        <select id="llm-language"></select>
+      </label>
+
       <p class="advanced-hint">Summarize / Translate send the transcript below to the selected model with a matching prompt. The reply appears here.</p>
       <div class="advanced-actions">
         <button id="summarize-btn" class="primary">Summarize</button>

@@ -34,6 +34,7 @@ const advancedPanel = document.getElementById("advanced-panel");
 const advancedCloseBtn = document.getElementById("advanced-close");
 const llmUrlEl = document.getElementById("llm-url");
 const llmModelSel = document.getElementById("llm-model");
+const llmLangSel = document.getElementById("llm-language");
 const llmFetchModelsBtn = document.getElementById("llm-fetch-models");
 const summarizeBtn = document.getElementById("summarize-btn");
 const translateBtn = document.getElementById("translate-btn");
@@ -655,11 +656,30 @@ quitBtn.addEventListener("click", async () => {
 
 const LLM_URL_KEY = "whisper-live.llm-url";
 const LLM_MODEL_KEY = "whisper-live.llm-model";
+const LLM_LANG_KEY = "whisper-live.llm-language";
 let llmBusy = false;
+
+// The advanced panel's language dropdown must offer exactly the same
+// options as the main page's #language select — copy them once at startup
+// (the main list is the single source of truth).
+function syncLlmLanguageOptions() {
+  llmLangSel.innerHTML = "";
+  for (const opt of langSelect.options) {
+    const copy = document.createElement("option");
+    copy.value = opt.value;
+    copy.textContent = opt.textContent;
+    llmLangSel.appendChild(copy);
+  }
+}
+syncLlmLanguageOptions();
 
 try {
   const savedUrl = localStorage.getItem(LLM_URL_KEY);
   if (savedUrl) llmUrlEl.value = savedUrl;
+  const savedLang = localStorage.getItem(LLM_LANG_KEY);
+  if (savedLang && llmLangSel.querySelector(`option[value="${savedLang}"]`)) {
+    llmLangSel.value = savedLang;
+  }
 } catch { /* ignore (private mode etc.) */ }
 
 function setAdvancedOpen(open) {
@@ -763,7 +783,7 @@ async function runLlmAction(action) {
     const res = await fetch("/api/llm/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, model, action, text }),
+      body: JSON.stringify({ url, model, action, text, language: llmLangSel.value }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "HTTP " + res.status);
@@ -788,6 +808,11 @@ llmFetchModelsBtn.addEventListener("click", fetchLlmModels);
 llmModelSel.addEventListener("change", () => {
   try {
     if (llmModelSel.value) localStorage.setItem(LLM_MODEL_KEY, llmModelSel.value);
+  } catch { /* ignore */ }
+});
+llmLangSel.addEventListener("change", () => {
+  try {
+    localStorage.setItem(LLM_LANG_KEY, llmLangSel.value);
   } catch { /* ignore */ }
 });
 
