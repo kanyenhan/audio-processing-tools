@@ -7,6 +7,8 @@ const TARGET_SAMPLE_RATE = 16000;
 const startBtn = document.getElementById("start-btn");
 const stopBtn = document.getElementById("stop-btn");
 const clearBtn = document.getElementById("clear-btn");
+const fontIncBtn = document.getElementById("font-inc-btn");
+const fontDecBtn = document.getElementById("font-dec-btn");
 const modelSelect = document.getElementById("model");
 const langSelect = document.getElementById("language");
 const translateChk = document.getElementById("translate-en");
@@ -312,6 +314,35 @@ function resetTranscript() {
 }
 
 clearBtn.addEventListener("click", resetTranscript);
+
+// ---------- transcript font size (A− / A+ in the transcript header) ----------
+// All transcript font sizes derive from the --transcript-size CSS variable
+// (see style.css), so adjusting it scales the whole panel proportionally.
+const FONT_MIN_PX = 12;
+const FONT_MAX_PX = 28;
+const FONT_STEP_PX = 2;
+let transcriptFontPx = 16; // matches the CSS default
+
+function applyTranscriptFont() {
+  document.documentElement.style.setProperty(
+    "--transcript-size",
+    `${transcriptFontPx}px`,
+  );
+  fontDecBtn.disabled = transcriptFontPx <= FONT_MIN_PX;
+  fontIncBtn.disabled = transcriptFontPx >= FONT_MAX_PX;
+}
+
+fontDecBtn.addEventListener("click", () => {
+  transcriptFontPx = Math.max(FONT_MIN_PX, transcriptFontPx - FONT_STEP_PX);
+  applyTranscriptFont();
+});
+
+fontIncBtn.addEventListener("click", () => {
+  transcriptFontPx = Math.min(FONT_MAX_PX, transcriptFontPx + FONT_STEP_PX);
+  applyTranscriptFont();
+});
+
+applyTranscriptFont();
 
 // ---------- transcript export ----------
 

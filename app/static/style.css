@@ -9,6 +9,9 @@
   --red: #ff5d5d;
   --amber: #ffb454;
   --advanced-w: min(400px, 45vw); /* open width of the Advanced side panel */
+  /* Transcript font size: driven by the A−/A+ buttons in the transcript
+     header (app.js rewrites it); every transcript size derives from it. */
+  --transcript-size: 16px;
 }
 
 * { box-sizing: border-box; }
@@ -280,6 +283,12 @@ body.logs-hidden .bottom-split { margin-bottom: 56px; }
   font-size: 13px;
   color: var(--muted);
 }
+/* Right-aligned button group in the transcript header (A− / A+ / Clear) */
+.transcript-header .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
 /* Slim bottom bar of the transcript panel — Export, right-aligned */
 .transcript-footer {
@@ -309,7 +318,7 @@ body.logs-hidden .bottom-split { margin-bottom: 56px; }
   flex: 1;
   overflow-y: auto;
   padding: 16px;
-  font-size: 16px;
+  font-size: var(--transcript-size);
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
@@ -323,11 +332,11 @@ body.logs-hidden .bottom-split { margin-bottom: 56px; }
   padding-left: 12px;
   border-left: 2px solid var(--accent);
   color: var(--accent);
-  font-size: 14px;
+  font-size: calc(var(--transcript-size) * 0.875);
 }
 .transcript .segment .meta {
   display: block;
-  font-size: 12px;
+  font-size: calc(var(--transcript-size) * 0.75);
   color: var(--muted);
   font-family: ui-monospace, Menlo, monospace;
   margin-bottom: 2px;
@@ -338,7 +347,7 @@ body.logs-hidden .bottom-split { margin-bottom: 56px; }
   padding-left: 12px;
   border-left: 2px solid var(--accent);
   color: var(--accent);
-  font-size: 14px;
+  font-size: calc(var(--transcript-size) * 0.875);
 }
 
 #log {
@@ -449,11 +458,11 @@ body.resizing { user-select: none; }
   margin-top: 12px;
   padding-left: 12px;
   border-left: 2px solid var(--amber);
-  font-size: 14px;
+  font-size: calc(var(--transcript-size) * 0.875);
 }
 .transcript .llm-output .llm-output-label {
   color: var(--amber);
-  font-size: 12px;
+  font-size: calc(var(--transcript-size) * 0.75);
   font-family: ui-monospace, Menlo, monospace;
   margin-bottom: 2px;
 }
