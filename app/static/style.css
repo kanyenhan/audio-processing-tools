@@ -289,6 +289,21 @@ body.logs-hidden .bottom-split { margin-bottom: 56px; }
   padding: 5px 10px;
   border-top: 1px solid var(--border);
 }
+/* Export is the one prominent action in the footer: solid accent fill with
+   white text (strong contrast on the dark panel), sized down to fit the bar. */
+#export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+}
+#export-btn svg { flex: none; }
+#export-btn:hover:not(:disabled) {
+  background: #3d7af0;
+  box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.18);
+}
 
 .transcript {
   flex: 1;
