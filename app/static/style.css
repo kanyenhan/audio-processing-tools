@@ -29,6 +29,8 @@ header {
   justify-content: space-between;
   padding: 14px 24px;
   border-bottom: 1px solid var(--border);
+  flex-wrap: wrap; /* very narrow windows: wrap instead of overflowing */
+  row-gap: 10px;
 }
 
 h1 { font-size: 18px; margin: 0; font-weight: 600; }
@@ -224,7 +226,11 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 }
 
 .transcript-wrap {
-  flex: 1 1 auto;
+  /* flex-basis 0 (not auto): with an auto basis the transcript's
+     max-content width would join the flex calculation and, once text is
+     generated, flex-shrink would squeeze the Advanced panel away.  The
+     transcript always just takes the space left after the panel. */
+  flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -368,7 +374,11 @@ body.resizing { user-select: none; }
    height always matches the Transcript area (no fixed overlay, no
    shifting of the controls above). */
 #advanced-panel {
-  flex: 0 1 auto;
+  /* flex-shrink 0: the open width var(--advanced-w) = min(400px, 45vw) is
+     always kept, at any page width — it scales with the viewport and never
+     gets squeezed (or pushed out of view) when transcript content is
+     generated; the transcript area narrows to accommodate it instead. */
+  flex: 0 0 auto;
   width: 0;
   overflow: hidden;
   background: var(--panel);
@@ -384,13 +394,14 @@ body.resizing { user-select: none; }
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
 }
 /* Fixed inner width (the panel's open width) so the content never
-   reflows while the panel's width animates 0 -> 400px. */
+   reflows while the panel's width animates 0 -> 400px.  Minus 1px for
+   the border-left that appears while the panel is open (border-box). */
 .advanced-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  width: var(--advanced-w);
+  width: calc(var(--advanced-w) - 1px);
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);
   font-size: 14px;
@@ -399,7 +410,7 @@ body.resizing { user-select: none; }
 .advanced-body {
   flex: 1;
   min-height: 0;
-  width: var(--advanced-w);
+  width: calc(var(--advanced-w) - 1px);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -414,18 +425,21 @@ body.resizing { user-select: none; }
 .advanced-model-row { display: flex; align-items: flex-end; gap: 10px; }
 .advanced-model-row .grow { flex: 1; min-width: 0; }
 .advanced-hint { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
-.advanced-actions { display: flex; gap: 10px; }
+.advanced-actions { display: flex; gap: 10px; flex-wrap: wrap; } /* wrap, not overflow, when the panel is narrow */
 .advanced-actions button { flex: 1; }
-#llm-output.llm-output {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 13px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 38vh;
-  overflow-y: auto;
+/* LLM result (advanced-panel summarize / translate) — pinned directly
+   below the original transcription in the transcript area.  Amber accent
+   to tell it apart from the blue whisper-translation lines. */
+.transcript .llm-output {
+  margin-top: 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--amber);
+  font-size: 14px;
+}
+.transcript .llm-output .llm-output-label {
+  color: var(--amber);
+  font-size: 12px;
+  font-family: ui-monospace, Menlo, monospace;
+  margin-bottom: 2px;
 }
 .file-status.err { color: var(--red); }

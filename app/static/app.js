@@ -39,7 +39,8 @@ const llmFetchModelsBtn = document.getElementById("llm-fetch-models");
 const summarizeBtn = document.getElementById("summarize-btn");
 const translateBtn = document.getElementById("translate-btn");
 const llmStatusEl = document.getElementById("llm-status");
-const llmOutputEl = document.getElementById("llm-output");
+let llmOutputEl = null; // LLM result block, created on demand and pinned
+                        // directly below the newest transcript content
 
 let localWs = null;
 let running = false;
@@ -247,6 +248,7 @@ function appendTranscript(msg) {
       transcriptEl.appendChild(seg);
     }
   }
+  pinLlmOutput();
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
   refreshExportBtn();
 }
@@ -281,6 +283,7 @@ function appendFileTranslation(text) {
     transcriptEl.appendChild(fileTrEl);
   }
   fileTrEl.textContent += (fileTrEl.textContent ? " " : "") + text;
+  pinLlmOutput();
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
   refreshExportBtn();
 }
@@ -313,9 +316,13 @@ clearBtn.addEventListener("click", resetTranscript);
 // ---------- transcript export ----------
 
 function transcriptIsEmpty() {
-  // Only the empty-state placeholder and/or the in-flight partial remain.
+  // Only the empty-state placeholder, the in-flight partial, and/or the LLM
+  // result block (post-processing, not transcription) remain.
   return [...transcriptEl.children].every(
-    (n) => n.classList.contains("partial") || n.classList.contains("muted"),
+    (n) =>
+      n.classList.contains("partial") ||
+      n.classList.contains("muted") ||
+      n.classList.contains("llm-output"),
   );
 }
 
@@ -327,8 +334,13 @@ refreshExportBtn();
 exportBtn.addEventListener("click", () => {
   const parts = [];
   for (const node of transcriptEl.children) {
-    // Skip the empty-state placeholder and the tentative in-flight line.
-    if (node.classList.contains("partial") || node.classList.contains("muted")) continue;
+    // Skip the empty-state placeholder, the tentative in-flight line, and
+    // the LLM result (the export stays the transcription itself).
+    if (
+      node.classList.contains("partial") ||
+      node.classList.contains("muted") ||
+      node.classList.contains("llm-output")
+    ) continue;
     const text = node.innerText.trim().split("\n").map((l) => l.trim()).join("\n");
     if (text) parts.push(text);
   }
@@ -700,6 +712,33 @@ advancedBtn.addEventListener("click", () => {
 });
 advancedCloseBtn.addEventListener("click", () => setAdvancedOpen(false));
 
+// Keep the LLM result (if any) pinned directly below the newest transcript
+// content — new segments/paragraphs are appended after it as they arrive.
+function pinLlmOutput() {
+  if (llmOutputEl && llmOutputEl.parentNode === transcriptEl) {
+    transcriptEl.appendChild(llmOutputEl);
+  }
+}
+
+// Show the LLM reply directly under the original transcription.  The block
+// is created once and reused for subsequent runs (its content is replaced).
+function showLlmOutput(text, label) {
+  if (!llmOutputEl) {
+    llmOutputEl = document.createElement("div");
+    llmOutputEl.className = "llm-output";
+    const head = document.createElement("div");
+    head.className = "llm-output-label";
+    const body = document.createElement("div");
+    body.className = "llm-output-text";
+    llmOutputEl.appendChild(head);
+    llmOutputEl.appendChild(body);
+  }
+  llmOutputEl.querySelector(".llm-output-label").textContent = label;
+  llmOutputEl.querySelector(".llm-output-text").textContent = text;
+  transcriptEl.appendChild(llmOutputEl);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+
 // Raw transcript text for the LLM: live-mode segments without their meta
 // line and without whisper translation children, or the file-mode continuous
 // paragraph.  Skips the in-flight partial and the empty placeholder.
@@ -708,6 +747,7 @@ function collectTranscriptText() {
   for (const node of transcriptEl.children) {
     if (node.classList.contains("partial") || node.classList.contains("muted")) continue;
     if (node.classList.contains("file-translation")) continue;
+    if (node.classList.contains("llm-output")) continue; // don't feed LLM results back in
     let text;
     if (node.classList.contains("segment")) {
       const clone = node.cloneNode(true);
@@ -777,7 +817,7 @@ async function runLlmAction(action) {
   llmBusy = true;
   summarizeBtn.disabled = true;
   translateBtn.disabled = true;
-  llmOutputEl.hidden = true;
+  if (llmOutputEl) llmOutputEl.remove(); // a new result replaces the old one
   const verb = action === "summarize" ? "Summarizing" : "Translating";
   setLlmStatus(verb + " with " + model + "... (local models can take a while)");
   log("LLM " + action + ": " + text.length + " chars to " + model + " @ " + url);
@@ -791,8 +831,8 @@ async function runLlmAction(action) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "HTTP " + res.status);
     const secs = ((Date.now() - started) / 1000).toFixed(1);
-    llmOutputEl.textContent = (data.text || "").trim() || "(empty response)";
-    llmOutputEl.hidden = false;
+    const label = (action === "summarize" ? "Summary" : "Translation") + " · " + model;
+    showLlmOutput((data.text || "").trim() || "(empty response)", label);
     setLlmStatus("Done in " + secs + "s.");
     log("LLM " + action + " done (" + secs + "s)");
   } catch (err) {
