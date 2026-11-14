@@ -68,7 +68,10 @@ same accuracy while using less memory).
 ### Run
 
 **One-click start** — creates `.venv` (if missing), installs requirements,
-starts the app and opens the page in your browser:
+starts the app and opens the page in your browser, in a **new browser
+window** (not a tab in an existing one) when your default browser is a
+well-known one (Chrome, Chromium, Brave, Edge, Vivaldi, Firefox, Safari);
+other browsers open as usual:
 
 | Platform | Script |
 | --- | --- |

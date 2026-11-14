@@ -5,7 +5,7 @@
 #   1. create .venv (if missing)
 #   2. install requirements
 #   3. start the app
-#   4. open the page in the default browser once the server answers
+#   4. open the page in a new browser window once the server answers
 # ============================================================
 set -euo pipefail
 
@@ -62,14 +62,33 @@ echo "Installing requirements (safe to re-run) ..."
 "$PY" -m pip install --quiet -r requirements.txt </dev/null
 
 # --- 4. open the browser once the server answers (background) -----------
-(
-  for _ in $(seq 1 240); do            # up to ~2 minutes
-    if "$PY" -c 'import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=1)' "$URL" >/dev/null 2>&1; then
+# Open the page in a *new browser window* instead of a new tab: xdg-open
+# cannot force this, so when the default browser is a well-known one, call
+# it with its own new-window flag; otherwise fall back to xdg-open.
+open_in_new_window() {
+  local def
+  def="$(xdg-mime query default x-scheme-handler/http 2>/dev/null || true)"
+  case "$def" in
+    firefox*.desktop)
+      firefox -new-window "$URL" 2>/dev/null || xdg-open "$URL" ;;
+    microsoft-edge*.desktop)
+      msedge --new-window "$URL" 2>/dev/null || xdg-open "$URL" ;;
+    google-chrome*.desktop|chromium*.desktop|brave*.desktop|vivaldi*.desktop)
+      local bin="${def%.desktop}"
+      command -v "$bin" >/dev/null 2>&1 && "$bin" --new-window "$URL" || xdg-open "$URL" ;;
+    *)
       if command -v xdg-open >/dev/null 2>&1; then
         xdg-open "$URL"
       else
         echo "warning: xdg-open not found — please open ${URL} in a browser" >&2
-      fi
+      fi ;;
+  esac
+}
+
+(
+  for _ in $(seq 1 240); do            # up to ~2 minutes
+    if "$PY" -c 'import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=1)' "$URL" >/dev/null 2>&1; then
+      open_in_new_window
       exit 0
     fi
     sleep 0.5

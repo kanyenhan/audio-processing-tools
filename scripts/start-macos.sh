@@ -5,7 +5,7 @@
 #   1. create .venv (if missing)
 #   2. install requirements
 #   3. start the app
-#   4. open the page in the default browser once the server answers
+#   4. open the page in a new browser window once the server answers
 # ============================================================
 set -euo pipefail
 
@@ -64,10 +64,53 @@ echo "Installing requirements (safe to re-run) ..."
 "$PY" -m pip install --quiet -r requirements.txt </dev/null
 
 # --- 4. open the browser once the server answers (background) -----------
+# Open the page in a *new browser window* instead of a new tab in an
+# existing one.  Each well-known browser gets its own new-window flag,
+# passed to a fresh app instance (which forwards the flag to the running
+# browser, so the window appears in the same session); anything else falls
+# back to `open -n`, which starts a fresh app instance/window.
+detect_default_browser() {
+  "$PY" - <<'PYEOF' 2>/dev/null || true
+import plistlib, subprocess, sys
+try:
+    out = subprocess.run(
+        ["/usr/bin/defaults", "export",
+         "com.apple.LaunchServices/com.apple.launchservices.secure", "-"],
+        capture_output=True, timeout=10)
+    pl = plistlib.loads(out.stdout)
+except Exception:
+    sys.exit(0)
+for h in pl.get("LSHandlers", []):
+    # The scheme may be stored as the plural list key (user-chosen default)
+    # or the singular string key (system default); bundle ids can be lowercase.
+    schemes = [s.lower() for s in h.get("LSHandlerURLSchemes", [])]
+    single = h.get("LSHandlerURLScheme")
+    if isinstance(single, str):
+        schemes.append(single.lower())
+    if "http" in schemes or "https" in schemes:
+        print(h.get("LSHandlerRoleAll", ""))
+        break
+PYEOF
+}
+
+open_in_new_window() {
+  local bundle
+  bundle="$(detect_default_browser)"
+  case "$(printf '%s' "$bundle" | tr '[:upper:]' '[:lower:]')" in
+    com.google.chrome)      open -na "Google Chrome" --args --new-window "$URL" ;;
+    com.google.chromium)    open -na "Chromium" --args --new-window "$URL" ;;
+    com.brave.browser)      open -na "Brave Browser" --args --new-window "$URL" ;;
+    com.microsoft.edgemac)  open -na "Microsoft Edge" --args --new-window "$URL" ;;
+    com.vivaldi.vivaldi)    open -na "Vivaldi" --args --new-window "$URL" ;;
+    org.mozilla.firefox)    open -na "Firefox" --args -new-window "$URL" ;;
+    *)                      open -n "$URL" ;;
+  esac
+}
+
 (
   for _ in $(seq 1 240); do            # up to ~2 minutes
     if "$PY" -c 'import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=1)' "$URL" >/dev/null 2>&1; then
-      open "$URL"
+      open_in_new_window
       exit 0
     fi
     sleep 0.5
