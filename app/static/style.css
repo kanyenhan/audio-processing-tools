@@ -482,6 +482,53 @@ body.resizing { user-select: none; }
 .advanced-hint { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
 .advanced-actions { display: flex; gap: 10px; flex-wrap: wrap; } /* wrap, not overflow, when the panel is narrow */
 .advanced-actions button { flex: 1; }
+/* Collapsible Custom prompt area (collapsed by default).  A <details>
+   element styled as a boxed section; the summary row is the only thing
+   visible while it is collapsed. */
+.advanced-custom {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.advanced-custom summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.advanced-custom summary::-webkit-details-marker { display: none; }
+.advanced-custom summary::before {
+  content: "\25B8"; /* ▸ collapsed */
+  font-size: 11px;
+  transition: transform 0.15s;
+}
+.advanced-custom[open] > summary::before { content: "\25BE"; } /* ▾ open */
+.advanced-custom-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+#advanced-panel textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+}
+#advanced-panel textarea:focus { outline: none; border-color: var(--accent); }
 /* LLM result (advanced-panel summarize / translate) — pinned directly
    below the original transcription in the transcript area.  Amber accent
    to tell it apart from the blue whisper-translation lines. */

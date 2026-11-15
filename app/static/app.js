@@ -41,6 +41,8 @@ const llmLangSel = document.getElementById("llm-language");
 const llmFetchModelsBtn = document.getElementById("llm-fetch-models");
 const summarizeBtn = document.getElementById("summarize-btn");
 const translateBtn = document.getElementById("translate-btn");
+const customPromptEl = document.getElementById("llm-custom-prompt");
+const customPromptSubmitBtn = document.getElementById("custom-prompt-submit");
 const llmStatusEl = document.getElementById("llm-status");
 let llmOutputEl = null; // LLM result block, created on demand and pinned
                         // directly below the newest transcript content
@@ -857,7 +859,10 @@ async function fetchLlmModels() {
   }
 }
 
-async function runLlmAction(action) {
+// action: "summarize" | "translate" | "custom".  For "custom" the prompt
+// (from the collapsible Custom prompt field) is sent to the model verbatim
+// together with the transcript.
+async function runLlmAction(action, customPrompt) {
   if (llmBusy) return;
   const url = llmUrlEl.value.trim();
   const model = llmModelSel.value;
@@ -869,6 +874,11 @@ async function runLlmAction(action) {
     setLlmStatus("Fetch the model list and pick a model first.", "warn");
     return;
   }
+  customPrompt = (customPrompt || "").trim();
+  if (action === "custom" && !customPrompt) {
+    setLlmStatus("Enter a custom prompt first.", "warn");
+    return;
+  }
   const text = collectTranscriptText();
   if (!text) {
     setLlmStatus("The transcript is empty - nothing to process.", "warn");
@@ -877,8 +887,13 @@ async function runLlmAction(action) {
   llmBusy = true;
   summarizeBtn.disabled = true;
   translateBtn.disabled = true;
+  customPromptSubmitBtn.disabled = true;
   if (llmOutputEl) llmOutputEl.remove(); // a new result replaces the old one
-  const verb = action === "summarize" ? "Summarizing" : "Translating";
+  const verb = action === "summarize"
+    ? "Summarizing"
+    : action === "translate"
+      ? "Translating"
+      : "Running custom prompt";
   setLlmStatus(verb + " with " + model + "... (local models can take a while)");
   log("LLM " + action + ": " + text.length + " chars to " + model + " @ " + url);
   const started = Date.now();
@@ -886,12 +901,18 @@ async function runLlmAction(action) {
     const res = await fetch("/api/llm/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, model, action, text, language: llmLangSel.value }),
+      body: JSON.stringify({
+        url, model, action, text,
+        language: llmLangSel.value,
+        prompt: customPrompt,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "HTTP " + res.status);
     const secs = ((Date.now() - started) / 1000).toFixed(1);
-    const label = (action === "summarize" ? "Summary" : "Translation") + " · " + model;
+    const label = (action === "summarize" ? "Summary"
+      : action === "translate" ? "Translation"
+      : "Custom prompt") + " · " + model;
     showLlmOutput((data.text || "").trim() || "(empty response)", label);
     setLlmStatus("Done in " + secs + "s.");
     log("LLM " + action + " done (" + secs + "s)");
@@ -902,11 +923,15 @@ async function runLlmAction(action) {
     llmBusy = false;
     summarizeBtn.disabled = false;
     translateBtn.disabled = false;
+    customPromptSubmitBtn.disabled = false;
   }
 }
 
 summarizeBtn.addEventListener("click", () => runLlmAction("summarize"));
 translateBtn.addEventListener("click", () => runLlmAction("translate"));
+customPromptSubmitBtn.addEventListener("click", () =>
+  runLlmAction("custom", customPromptEl.value),
+);
 llmFetchModelsBtn.addEventListener("click", fetchLlmModels);
 llmModelSel.addEventListener("change", () => {
   try {

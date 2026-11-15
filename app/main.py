@@ -272,12 +272,15 @@ LLM_LANGUAGES = {
 }
 
 
-def _llm_prompt(action: str, language: str) -> str:
+def _llm_prompt(action: str, language: str, custom_prompt: str = "") -> str:
     """Build the system prompt for an LLM post-processing action.
     language is a UI language code or auto: summarize writes in the
     chosen language (auto = the language of the transcription), translate
     targets the chosen language (auto = English, the historical
-    default)."""
+    default). custom uses the user's prompt verbatim (they fully control
+    the instruction, including the language)."""
+    if action == "custom":
+        return custom_prompt
     if language == "auto":
         target = "the same language as the transcription"
         if action == "translate":
@@ -348,11 +351,14 @@ async def llm_run(payload: dict) -> JSONResponse:
     model = str(payload.get("model") or "").strip()
     text = str(payload.get("text") or "").strip()
     language = str(payload.get("language") or "auto").strip() or "auto"
-    if action not in ("summarize", "translate"):
+    if action not in ("summarize", "translate", "custom"):
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown action {action!r}; use summarize or translate.",
+            detail=f"Unknown action {action!r}; use summarize, translate or custom.",
         )
+    custom_prompt = str(payload.get("prompt") or "").strip()
+    if action == "custom" and not custom_prompt:
+        raise HTTPException(status_code=400, detail="Missing custom prompt.")
     if language != "auto" and language not in LLM_LANGUAGES:
         raise HTTPException(
             status_code=400, detail=f"Unknown language {language!r}."
@@ -365,7 +371,7 @@ async def llm_run(payload: dict) -> JSONResponse:
     body = {
         "model": model,
         "messages": [
-            {"role": "system", "content": _llm_prompt(action, language)},
+            {"role": "system", "content": _llm_prompt(action, language, custom_prompt)},
             {"role": "user", "content": f"Transcription:\n{text}"},
         ],
         "temperature": 0.3,

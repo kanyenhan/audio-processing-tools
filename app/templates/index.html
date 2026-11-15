@@ -172,6 +172,19 @@
             <button id="summarize-btn" class="primary">Summarize</button>
             <button id="translate-btn" class="primary">Translate</button>
           </div>
+
+          <!-- Collapsed by default (no "open" attribute on <details>) -->
+          <details class="advanced-custom">
+            <summary title="Send the transcript to the LLM with your own prompt">Custom prompt</summary>
+            <div class="advanced-custom-body">
+              <label class="field">
+                <span>Prompt (sent with the transcript to the selected model)</span>
+                <textarea id="llm-custom-prompt" rows="4"
+                          placeholder="e.g. Extract all action items from this transcript as a checklist"></textarea>
+              </label>
+              <button id="custom-prompt-submit" class="primary">Submit</button>
+            </div>
+          </details>
           <div id="llm-status" class="file-status"></div>
         </div>
       </aside>
