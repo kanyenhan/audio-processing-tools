@@ -112,8 +112,19 @@
         <div class="transcript-header">
           <span>Transcript</span>
           <div class="header-actions">
-            <button id="font-dec-btn" class="ghost" title="Decrease transcript font size">A−</button>
-            <button id="font-inc-btn" class="ghost" title="Increase transcript font size">A+</button>
+            <div class="font-toggle" role="group" aria-label="Transcript font size">
+              <button id="font-dec-btn" title="Decrease transcript font size">−</button>
+              <button id="font-inc-btn" title="Increase transcript font size">+</button>
+            </div>
+            <!-- Timestamp-line toggle: off = transcribed text only -->
+            <label class="meta-toggle"
+                   title="Show/hide the per-segment timestamp · language · length · VAD line">
+              <span class="switch sm">
+                <input type="checkbox" id="meta-toggle" checked />
+                <span class="switch-slider"></span>
+              </span>
+              <span>Timestamps</span>
+            </label>
             <button id="clear-btn" class="ghost">Clear</button>
           </div>
         </div>

@@ -9,8 +9,8 @@
   --red: #ff5d5d;
   --amber: #ffb454;
   --advanced-w: min(400px, 45vw); /* open width of the Advanced side panel */
-  /* Transcript font size: driven by the A−/A+ buttons in the transcript
-     header (app.js rewrites it); every transcript size derives from it. */
+  /* Transcript font size: driven by the −/+ pill in the transcript header
+     (app.js rewrites it); every transcript size derives from it. */
   --transcript-size: 16px;
 }
 
@@ -283,11 +283,40 @@ body.logs-hidden .bottom-split { margin-bottom: 56px; }
   font-size: 13px;
   color: var(--muted);
 }
-/* Right-aligned button group in the transcript header (A− / A+ / Clear) */
+/* Right-aligned button group in the transcript header (font-size pill / Clear) */
 .transcript-header .header-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+/* Font-size control: one pill split in the middle — "−" on the left,
+   "+" on the right (same segmented look as the Live/File mode toggle). */
+.font-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.font-toggle button {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 4px 11px;
+  font-size: 13px;
+  line-height: 1;
+}
+.font-toggle button + button { border-left: 1px solid var(--border); }
+/* Timestamp-line toggle: compact switch + text label in the transcript
+   header (same slider as the Logs pill, sized down to fit the bar). */
+.meta-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
 }
 
 /* Slim bottom bar of the transcript panel — Export, right-aligned */
@@ -341,6 +370,8 @@ body.logs-hidden .bottom-split { margin-bottom: 56px; }
   font-family: ui-monospace, Menlo, monospace;
   margin-bottom: 2px;
 }
+/* "timestamps" toggle off: transcribed text only */
+body.transcript-meta-hidden .transcript .segment .meta { display: none; }
 /* File mode: translation streams in as one continuous paragraph. */
 .transcript .file-translation {
   margin-top: 10px;

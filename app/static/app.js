@@ -9,6 +9,7 @@ const stopBtn = document.getElementById("stop-btn");
 const clearBtn = document.getElementById("clear-btn");
 const fontIncBtn = document.getElementById("font-inc-btn");
 const fontDecBtn = document.getElementById("font-dec-btn");
+const metaToggleChk = document.getElementById("meta-toggle");
 const modelSelect = document.getElementById("model");
 const langSelect = document.getElementById("language");
 const translateChk = document.getElementById("translate-en");
@@ -315,7 +316,7 @@ function resetTranscript() {
 
 clearBtn.addEventListener("click", resetTranscript);
 
-// ---------- transcript font size (A− / A+ in the transcript header) ----------
+// ---------- transcript font size (−/+ pill in the transcript header) ----------
 // All transcript font sizes derive from the --transcript-size CSS variable
 // (see style.css), so adjusting it scales the whole panel proportionally.
 const FONT_MIN_PX = 12;
@@ -343,6 +344,34 @@ fontIncBtn.addEventListener("click", () => {
 });
 
 applyTranscriptFont();
+
+// ---------- per-segment meta line (timestamp · language · length · VAD) ----------
+// The "Timestamps" switch in the transcript header toggles it.  When off, the
+// transcript shows only the transcribed text: the .meta spans keep being
+// created (so flipping back on restores the info for old segments too) but
+// the body class below hides them via CSS.  Export picks this up for free —
+// innerText skips display:none nodes, so a saved .txt then contains just the
+// text.  The choice persists in localStorage like the other view settings.
+const META_KEY = "whisper-live.meta-hidden";
+let metaHidden = false;
+try {
+  metaHidden = localStorage.getItem(META_KEY) === "1";
+} catch { /* ignore */ }
+
+function applyMetaToggle() {
+  document.body.classList.toggle("transcript-meta-hidden", metaHidden);
+  metaToggleChk.checked = !metaHidden;
+}
+
+metaToggleChk.addEventListener("change", () => {
+  metaHidden = !metaToggleChk.checked;
+  try {
+    localStorage.setItem(META_KEY, metaHidden ? "1" : "0");
+  } catch { /* ignore */ }
+  applyMetaToggle();
+});
+
+applyMetaToggle();
 
 // ---------- transcript export ----------
 
