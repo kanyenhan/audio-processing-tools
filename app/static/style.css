@@ -529,6 +529,19 @@ body.resizing { user-select: none; }
   resize: vertical;
 }
 #advanced-panel textarea:focus { outline: none; border-color: var(--accent); }
+/* Preset "character" buttons (Pirate / Caveman / Rapper) above the Custom
+   prompt box — one click fills the box with that profile's instruction. */
+.prompt-presets { display: flex; gap: 8px; flex-wrap: wrap; }
+.prompt-preset {
+  flex: 1;
+  min-width: 74px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.prompt-preset:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+.prompt-preset.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.prompt-preset.active:hover { background: #3d7af0; }
 /* LLM result (advanced-panel summarize / translate) — pinned directly
    below the original transcription in the transcript area.  Amber accent
    to tell it apart from the blue whisper-translation lines. */

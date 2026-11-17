@@ -177,6 +177,15 @@
           <details class="advanced-custom">
             <summary title="Send the transcript to the LLM with your own prompt">Custom prompt</summary>
             <div class="advanced-custom-body">
+              <div class="prompt-presets" role="group"
+                   aria-label="Preset prompts (fill the prompt box with a ready-made instruction)">
+                <button type="button" class="prompt-preset" data-preset="pirate"
+                        title="Rewrite the transcription as a pirate">Pirate</button>
+                <button type="button" class="prompt-preset" data-preset="caveman"
+                        title="Rewrite the transcription as a caveman">Caveman</button>
+                <button type="button" class="prompt-preset" data-preset="rapper"
+                        title="Rewrite the transcription as a rap">Rapper</button>
+              </div>
               <label class="field">
                 <span>Prompt (sent with the transcript to the selected model)</span>
                 <textarea id="llm-custom-prompt" rows="4"

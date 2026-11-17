@@ -932,6 +932,56 @@ translateBtn.addEventListener("click", () => runLlmAction("translate"));
 customPromptSubmitBtn.addEventListener("click", () =>
   runLlmAction("custom", customPromptEl.value),
 );
+
+// ---------- custom prompt presets (Pirate / Caveman / Rapper) ----------
+// One-click "character" profiles that sit above the Custom prompt box.  A
+// click fills the box with a ready-made instruction so the local model
+// rewrites the transcription in that voice; the user can still edit the text
+// before pressing Submit.  The backend sends the custom prompt verbatim as the
+// system message, so each preset fully describes the persona and the task.
+const PROMPT_PRESETS = {
+  pirate:
+    "You are a charming, grizzled pirate — an old salt of the seven seas. " +
+    "Rewrite the transcription the user provides entirely in a pirate's " +
+    "voice: use nautical slang (\"arr\", \"matey\", \"ye scurvy dog\", \"me " +
+    "hearty\", \"the briny deep\", \"plunder\", \"landlubber\"), a " +
+    "swashbuckling tone and the occasional sea-shanty flourish. Keep the " +
+    "underlying meaning, facts and names intact. Reply with the pirate-style " +
+    "rewrite only — no preamble, no commentary.",
+  caveman:
+    "You are a grunting prehistoric caveman. Rewrite the transcription the " +
+    "user provides the way a caveman would speak: short, blunt, simple words " +
+    "(\"me\", \"we\", \"stone\", \"fire\", \"big\", \"good\"), minimal grammar and " +
+    "the occasional \"Ugh\", but keep the underlying meaning clear enough to " +
+    "understand. Reply with the caveman-style rewrite only — no preamble, no " +
+    "commentary.",
+  rapper:
+    "You are a confident modern rapper with a smooth flow. Turn the " +
+    "transcription the user provides into a rap: give it a clear rhyme " +
+    "scheme, rhythm and swagger, add wordplay and a few punchlines where they " +
+    "fit, but keep the underlying meaning and facts intact. Reply with the " +
+    "rap only — no preamble, no commentary.",
+};
+
+// The preset buttons live in the static HTML above the prompt box; clicking
+// one fills the box and marks it as the active profile.
+const presetBtns = document.querySelectorAll(".prompt-preset");
+function clearPresetActive() {
+  for (const b of presetBtns) b.classList.remove("active");
+}
+for (const btn of presetBtns) {
+  btn.addEventListener("click", () => {
+    const preset = PROMPT_PRESETS[btn.dataset.preset];
+    if (!preset) return;
+    customPromptEl.value = preset;
+    clearPresetActive();
+    btn.classList.add("active");
+    customPromptEl.focus();
+  });
+}
+// Editing the box by hand means no preset is "applied" any more.
+customPromptEl.addEventListener("input", clearPresetActive);
+
 llmFetchModelsBtn.addEventListener("click", fetchLlmModels);
 llmModelSel.addEventListener("change", () => {
   try {
