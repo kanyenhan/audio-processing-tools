@@ -46,7 +46,10 @@ same accuracy while using less memory).
   check), so the model only runs on actual utterances
 - **Quit** button in the header (top-right): gracefully stops the app
   (`SIGTERM` — the same as `Ctrl-C` in the terminal) and closes the app's
-  browser tab (on macOS, via AppleScript; see "Dedicated window" below)
+  browser tab (on macOS, via AppleScript; see "Dedicated window" below).
+  Alternatively, just close the app's browser window: the app notices that
+  no browser is connected anymore and stops itself a few seconds later
+  (see "Dedicated window" below)
 - **Advanced** panel (header, left of Quit): slide-out panel that sends the
   transcript to a local OpenAI-compatible LLM (e.g. LM Studio at
   `http://127.0.0.1:1234/v1`) - enter the server URL, fetch its model list,
@@ -81,11 +84,18 @@ other browsers open as usual:
 
 **Dedicated window (auto-closing)**: on macOS and Linux the start script
 opens the app in its own terminal window (a new Terminal / gnome-terminal
-window) and prints the logs there. When the app quits — **Quit** button or
-`Ctrl-C` — the window closes automatically after a short farewell. This
-relies on your terminal's "close the window when the shell exits" setting
-being at its default. A `WHISPER_LIVE_DEDICATED` guard prevents relaunch
-loops (re-running the script just opens one fresh window). On Windows a
+window) and prints the logs there. When the app quits — **Quit** button,
+`Ctrl-C`, or simply closing the app's **browser window** — the terminal
+window closes automatically after a short farewell. The browser-window case
+works because the page keeps a websocket open the whole time (and
+reconnects within ~2 s on a reload): once the last connection is gone and
+nothing reconnects within a 5 s grace period, the app stops itself
+(`SIGTERM`, same as **Quit** / `Ctrl-C`). If you open extra tabs, closing
+one of them does not stop the app while another tab is still connected.
+This relies on your terminal's "close the window when the shell exits"
+setting being at its default. A `WHISPER_LIVE_DEDICATED` flag (set by the
+start scripts, and tested as a relaunch guard) enables this auto-stop;
+re-running the script just opens one fresh window. On Windows a
 double-clicked console window already closes on its own when the bat ends.
 
 **Browser tab auto-close**: browsers only let a page close a tab it opened
@@ -101,7 +111,9 @@ open showing "App stopped" and can be closed manually.
 
 > Caveat: if you run `uvicorn` directly in your own terminal (bypassing the
 > start script), **Quit** stops the app and returns you to your shell
-> prompt — we intentionally never kill a user-owned shell.
+> prompt — we intentionally never kill a user-owned shell, and closing the
+> browser window likewise leaves the app running (no `WHISPER_LIVE_DEDICATED`
+> flag, so the auto-stop above is disabled).
 
 Manual:
 

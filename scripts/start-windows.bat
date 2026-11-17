@@ -12,6 +12,9 @@ cd /d "%~dp0.."
 set "HOST=127.0.0.1"
 set "PORT=8080"
 set "URL=http://%HOST%:%PORT%"
+rem Mark the app as running in its dedicated window+console pair so that
+rem closing the browser window also stops the app (and thus this console).
+set "WHISPER_LIVE_DEDICATED=1"
 
 rem --- 1. virtual environment ------------------------------------------
 where python >nul 2>nul

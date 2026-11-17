@@ -102,7 +102,9 @@ trap 'kill "$OPENER_PID" 2>/dev/null || true' EXIT
 echo "Starting Whisper Live Transcriber at ${URL}"
 "$PY" -m uvicorn app.main:app --host "$HOST" --port "$PORT"
 
-# The app exited (Quit button or Ctrl-C): close this dedicated window.
+# The app exited (Quit button, Ctrl-C, or the browser window was closed —
+# the app self-terminates a few seconds after its last browser connection
+# drops, see WHISPER_LIVE_DEDICATED in app/main.py): close this window.
 echo
 echo "App stopped. Closing this window in 3 seconds..."
 sleep 3

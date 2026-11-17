@@ -124,14 +124,18 @@ trap 'kill "$OPENER_PID" 2>/dev/null || true' EXIT
 echo "Starting Whisper Live Transcriber at ${URL}"
 "$PY" -m uvicorn app.main:app --host "$HOST" --port "$PORT"
 
-# The app exited (Quit button or Ctrl-C): close the browser tab the app
-# opened, then close this dedicated window.  window.close() from the page
-# is blocked by browsers for tabs not opened by a script, so we close the
-# matching tab from here via AppleScript — but only in browsers that are
-# already running (never launching one just to check).  Missing browsers,
-# or a denied Automation permission, are not a problem: `|| true` keeps
-# the shutdown going.  The first run triggers a one-time macOS prompt
-# ("Terminal is trying to control <browser>"); click Allow once.
+# The app exited (Quit button, Ctrl-C, or the browser window was closed —
+# the app self-terminates a few seconds after its last browser connection
+# drops, see WHISPER_LIVE_DEDICATED in app/main.py): close the browser tab
+# the app opened, then close this dedicated window.  If the user closed the
+# browser window first, there is simply nothing left to close here.
+# window.close() from the page is blocked by browsers for tabs not opened
+# by a script, so we close the matching tab from here via AppleScript —
+# but only in browsers that are already running (never launching one just
+# to check).  Missing browsers, or a denied Automation permission, are not
+# a problem: `|| true` keeps the shutdown going.  The first run triggers a
+# one-time macOS prompt ("Terminal is trying to control <browser>"); click
+# Allow once.
 osascript - "$URL" <<'APPLESCRIPT' || true
 on run argv
   set urlPrefix to item 1 of argv

@@ -405,10 +405,67 @@ def self_terminate() -> None:
     os.kill(os.getpid(), signal.SIGTERM)
 
 
+# --- dedicated-window auto-stop -------------------------------------------
+# When started via the start scripts, the app runs in a dedicated terminal
+# window together with its own dedicated browser window.  The page keeps a
+# websocket open for its whole lifetime (and reconnects within ~2 s on a
+# reload), so "no browser connection left" is a reliable signal that the
+# browser window was closed: stop the app so the terminal window closes too.
+DEDICATED_MODE = os.environ.get("WHISPER_LIVE_DEDICATED", "") == "1"
+#: How long to wait after the last disconnect before quitting.  The browser
+#: client reconnects after 2 s, so a page reload or transient blip is
+#: cancelled out; a genuinely closed window has nothing coming back.
+BROWSER_CLOSE_GRACE_S = 5.0
+
+_browser_conns = 0
+_shutting_down = False
+_close_watcher: asyncio.Task | None = None
+
+
+def _cancel_close_watcher() -> None:
+    global _close_watcher
+    if _close_watcher is not None and not _close_watcher.done():
+        _close_watcher.cancel()
+    _close_watcher = None
+
+
+async def _close_watcher_loop() -> None:
+    global _shutting_down
+    await asyncio.sleep(BROWSER_CLOSE_GRACE_S)
+    if _shutting_down or _browser_conns > 0:
+        return
+    log.info(
+        "Browser window closed (no connections after %.0fs grace) — "
+        "stopping the app; the dedicated terminal window will close",
+        BROWSER_CLOSE_GRACE_S,
+    )
+    _shutting_down = True
+    # uvicorn's SIGTERM handler runs on the event loop (add_signal_handler),
+    # so sending the signal from this task is safe and triggers the same
+    # graceful shutdown as the Quit button / Ctrl-C.
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+def _note_browser_left() -> None:
+    """Called after a browser websocket ends.  In dedicated mode, arm the
+    quit-on-idle watcher when this was the last connection; the watcher
+    re-checks the connection count when the grace period expires, so a
+    reconnect within the window (page reload, quick reopen) aborts it."""
+    if not DEDICATED_MODE or _shutting_down or _browser_conns > 0:
+        _cancel_close_watcher()
+        return
+    global _close_watcher
+    if _close_watcher is None or _close_watcher.done():
+        _close_watcher = asyncio.create_task(_close_watcher_loop())
+
+
 @app.post("/api/quit")
 async def quit_app() -> JSONResponse:
     """Stop the app from the UI; the start script's terminal window
     closes automatically once this process exits."""
+    global _shutting_down
+    _shutting_down = True  # the shutdown-triggered disconnects must not
+    # re-arm the close watcher (see _note_browser_left)
     log.info("Quit requested from UI — shutting down")
     return JSONResponse({"status": "quitting"},
                         background=BackgroundTask(self_terminate))
@@ -533,7 +590,9 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
        enabled; ts matches the segment it belongs to and arrives once the
        slower translate pass completes)
     """
+    global _browser_conns
     await browser_ws.accept()
+    _browser_conns += 1
     session: TranscriptionSession | None = None
     log.info("Browser connected")
     try:
@@ -708,4 +767,6 @@ async def browser_ws_endpoint(browser_ws: WebSocket) -> None:
     finally:
         if session is not None:
             await session.stop()
+        _browser_conns -= 1
+        _note_browser_left()
 

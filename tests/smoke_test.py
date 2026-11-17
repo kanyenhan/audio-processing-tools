@@ -64,6 +64,58 @@ def frame_chunks(pcm: bytes, chunk: int = 4096):
         yield pcm[i : i + chunk]
 
 
+async def test_dedicated_close_stops_app():
+    """Dedicated mode (WHISPER_LIVE_DEDICATED=1, as set by the start
+    scripts): when the last browser connection closes, the app must stop
+    itself within the grace period, and a reconnect within the grace
+    period (page reload / quick reopen) must abort the shutdown."""
+    port = 8091
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "app.main:app",
+         "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env={
+            **os.environ,
+            "WHISPER_LIVE_FAKE_TRANSCRIBER": "1",
+            "WHISPER_LIVE_DEDICATED": "1",
+        },
+    )
+    try:
+        await wait_for(port, "dedicated app")
+        ws_url = f"ws://127.0.0.1:{port}/ws"
+
+        # 1. Close, then reconnect within the grace period and stay open:
+        #    the app must survive past the first watcher's deadline (a page
+        #    reload or a quickly reopened window must not kill it).
+        async with websockets.connect(ws_url):
+            pass
+        await asyncio.sleep(1.0)
+        ws = await websockets.connect(ws_url)
+        await asyncio.sleep(6.0)  # > BROWSER_CLOSE_GRACE_S since first close
+        assert proc.poll() is None, "app died despite a live connection"
+        await ws.close()
+        print("app survived a close + reconnect within the grace period")
+
+        # 2. Now nothing reconnects: the app must self-terminate, as if the
+        #    dedicated browser window had been closed.
+        try:
+            rc = proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            raise AssertionError(
+                "app did not stop after the last browser connection closed"
+            )
+        print(f"dedicated app stopped after browser close (rc={rc})")
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+
 async def main():
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app",
@@ -253,6 +305,10 @@ async def main():
             err = json.loads(await asyncio.wait_for(ws.recv(), 15))
             print("bad model reply:", err)
             assert err.get("type") == "error", "expected error for bad model"
+
+        # 5. dedicated mode: closing the (last) browser connection stops the
+        #    app, as if the dedicated browser window had been closed.
+        await test_dedicated_close_stops_app()
 
         print("\nSMOKE TEST PASSED" if ok else "\nSMOKE TEST FAILED (see errors)")
         sys.exit(0 if ok else 1)
