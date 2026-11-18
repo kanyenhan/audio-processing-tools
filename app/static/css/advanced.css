@@ -1,0 +1,119 @@
+/* Advanced: side panel (LLM post-processing).  It is a flex sibling of
+   the transcript inside .transcript-row: opening it animates its width
+   from 0 to 400px so the transcript narrows to fit, while the panel's
+   height always matches the Transcript area (no fixed overlay, no
+   shifting of the controls above). */
+#advanced-panel {
+  /* flex-shrink 0: the open width var(--advanced-w) = min(400px, 45vw) is
+     always kept, at any page width — it scales with the viewport and never
+     gets squeezed (or pushed out of view) when transcript content is
+     generated; the transcript area narrows to accommodate it instead. */
+  flex: 0 0 auto;
+  width: 0;
+  overflow: hidden;
+  background: var(--panel);
+  border-left: 0 solid var(--border);
+  border-radius: 0 10px 10px 0;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.25s ease, border-width 0.25s ease;
+}
+#advanced-panel.open {
+  width: var(--advanced-w);
+  border-left-width: 1px;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+}
+/* Fixed inner width (the panel's open width) so the content never
+   reflows while the panel's width animates 0 -> 400px.  Minus 1px for
+   the border-left that appears while the panel is open (border-box). */
+.advanced-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: calc(var(--advanced-w) - 1px);
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+}
+.advanced-body {
+  flex: 1;
+  min-height: 0;
+  width: calc(var(--advanced-w) - 1px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+}
+#advanced-panel input[type="text"],
+#advanced-panel select {
+  width: 100%;
+  min-width: 0;
+}
+.advanced-model-row { display: flex; align-items: flex-end; gap: 10px; }
+.advanced-model-row .grow { flex: 1; min-width: 0; }
+.advanced-hint { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.advanced-actions { display: flex; gap: 10px; flex-wrap: wrap; } /* wrap, not overflow, when the panel is narrow */
+.advanced-actions button { flex: 1; }
+/* Collapsible Custom prompt area (collapsed by default).  A <details>
+   element styled as a boxed section; the summary row is the only thing
+   visible while it is collapsed. */
+.advanced-custom {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.advanced-custom summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.advanced-custom summary::-webkit-details-marker { display: none; }
+.advanced-custom summary::before {
+  content: "\25B8"; /* ▸ collapsed */
+  font-size: 11px;
+  transition: transform 0.15s;
+}
+.advanced-custom[open] > summary::before { content: "\25BE"; } /* ▾ open */
+.advanced-custom-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+#advanced-panel textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+}
+#advanced-panel textarea:focus { outline: none; border-color: var(--accent); }
+/* Preset "character" buttons (Pirate / Caveman / Rapper) above the Custom
+   prompt box — one click fills the box with that profile's instruction. */
+.prompt-presets { display: flex; gap: 8px; flex-wrap: wrap; }
+.prompt-preset {
+  flex: 1;
+  min-width: 74px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.prompt-preset:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+.prompt-preset.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.prompt-preset.active:hover { background: #3d7af0; }
