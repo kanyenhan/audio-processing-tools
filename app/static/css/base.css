@@ -104,3 +104,22 @@ button.danger:hover:not(:disabled) { background: rgba(255, 93, 93, 0.12); }
 .mode-btn.active { background: var(--accent); color: #fff; }
 .mode-btn:hover:not(.active) { background: #262c3a; color: var(--text); }
 .mode-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Hero zone: the block between the header and the transcript (mode bar +
+   controls).  It is only a positioning context for .hero-art, which fills
+   the otherwise-empty left gutter — the art is absolutely positioned, so
+   the mode bar / controls rows keep their normal flow and centered
+   50%-of-page widths. */
+.hero-zone { position: relative; }
+.hero-art {
+  position: absolute;
+  left: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 200px;
+  height: auto;
+}
+/* Narrower windows: the centered rows move toward the left edge — shrink
+   the art, and hide it once it would compete with the controls. */
+@media (max-width: 1000px) { .hero-art { width: 150px; } }
+@media (max-width: 700px)  { .hero-art { display: none; } }
