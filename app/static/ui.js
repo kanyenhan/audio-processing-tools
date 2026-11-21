@@ -6,6 +6,7 @@ import {
   transcriptEl,
   statusDot,
   statusText,
+  mascotEl,
   logEl,
   clearBtn,
   fontIncBtn,
@@ -269,4 +270,22 @@ exportBtn.addEventListener("click", () => {
   URL.revokeObjectURL(url);
   log(`Transcript exported → ${filename}`);
 });
+
+// ---------- mascot art (left gutter) ----------
+// Static mascot.png at idle; while a transcription is in flight (live
+// mic session or file processing) the src swaps to the looping
+// mascot-active.gif.  Browsers loop GIFs natively, so the animation needs
+// no extra code: the call sites (live-mode.js, file-mode.js, ws.js) just
+// toggle it at their start/stop points.
+const MASCOT_IDLE_SRC = "/static/assets/mascot.png";
+const MASCOT_ACTIVE_SRC = "/static/assets/mascot-active.gif";
+
+// Preload the animated version so it starts on the first frame of
+// activity, not after a fetch.
+new Image().src = MASCOT_ACTIVE_SRC;
+
+export function setMascotActive(active) {
+  const src = active ? MASCOT_ACTIVE_SRC : MASCOT_IDLE_SRC;
+  if (mascotEl.getAttribute("src") !== src) mascotEl.setAttribute("src", src);
+}
 

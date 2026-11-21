@@ -23,9 +23,11 @@
   <!-- Mode bar + controls, wrapped so the mascot art can anchor to the
        empty left gutter between the header and the transcript.  The art
        is positioned absolutely (css/base.css), so the centered 50%-width
-       rows keep their page-relative geometry. -->
+       rows keep their page-relative geometry.  While a transcription is
+       running (live mic or file) ui.js swaps the src to the looping
+       mascot-active.gif and back to mascot.png when it stops. -->
   <div class="hero-zone">
-    <img class="hero-art" src="/static/assets/mascot.png"
+    <img class="hero-art" id="mascot" src="/static/assets/mascot.png"
          alt="Transcriber mascot: a small robot in headphones writing on a clipboard" />
 
     <div class="mode-bar">

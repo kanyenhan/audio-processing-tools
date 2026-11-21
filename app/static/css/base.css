@@ -113,13 +113,20 @@ button.danger:hover:not(:disabled) { background: rgba(255, 93, 93, 0.12); }
 .hero-zone { position: relative; }
 .hero-art {
   position: absolute;
-  left: 24px;
   top: 50%;
-  transform: translateY(-50%);
-  width: 200px;
-  height: auto;
+  /* Centered in the empty strip between the window left edge and the
+     controls left edge (the 50%-wide centered rows start at 25vw, so the
+     middle of the strip is 12.5vw). */
+  left: 12.5vw;
+  transform: translate(-50%, -50%);
+  /* Fixed box + contain: the idle mascot.png is square while the running
+     mascot-active.gif is 16:9, so a constant box keeps the src swap from
+     shifting the layout. */
+  width: 330px;
+  height: 200px;
+  object-fit: contain;
 }
 /* Narrower windows: the centered rows move toward the left edge — shrink
    the art, and hide it once it would compete with the controls. */
-@media (max-width: 1000px) { .hero-art { width: 150px; } }
+@media (max-width: 1000px) { .hero-art { width: 150px; height: 150px; } }
 @media (max-width: 700px)  { .hero-art { display: none; } }

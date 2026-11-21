@@ -18,7 +18,7 @@ import {
   browseBtn,
   transcribeBtn,
 } from "./state.js";
-import { log, resetTranscript, setFileStatus, setStatus } from "./ui.js";
+import { log, resetTranscript, setFileStatus, setStatus, setMascotActive } from "./ui.js";
 import { ensureWsOpen, sendCmd, sendCmdIfOpen } from "./ws.js";
 import { stopAll } from "./live-mode.js";
 
@@ -46,6 +46,7 @@ async function startFileTranscript() {
   }
 
   setBusyControls(true);
+  setMascotActive(true); // GIF while processing
   setStatus("connecting", "Connecting…");
 
   try {
@@ -82,6 +83,7 @@ async function startFileTranscript() {
     log(`File transcription failed: ${err.message}`, "err");
     setStatus("error", "Error");
     setBusyControls(false);
+    setMascotActive(false);
     setFileStatus("Failed — see log.", "warn");
     sendCmdIfOpen({ type: "stop" });
   }

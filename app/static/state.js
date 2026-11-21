@@ -12,6 +12,9 @@ export const statusDot = document.getElementById("status-dot");
 export const statusText = document.getElementById("status-text");
 export const quitBtn = document.getElementById("quit-btn");
 
+// --- hero zone (mascot art) ---------------------------------------------------
+export const mascotEl = document.getElementById("mascot");
+
 // --- mode bar + control panels ----------------------------------------------
 export const modeLiveBtn = document.getElementById("mode-live");
 export const modeFileBtn = document.getElementById("mode-file");

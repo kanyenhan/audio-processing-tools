@@ -9,6 +9,7 @@ import {
   formatSeconds,
   log,
   setFileStatus,
+  setMascotActive,
   setStatus,
 } from "./ui.js";
 import { stopAll } from "./live-mode.js";
@@ -117,6 +118,7 @@ export function handleServerMessage(msg) {
       break;
     case "file_done":
       setBusyControls(false);
+      setMascotActive(false); // back to the idle PNG
       setStatus("idle", "Idle");
       setFileStatus(
         `${msg.filename}: ${msg.segments} segment(s) · ${formatSeconds(msg.duration_s)} audio`

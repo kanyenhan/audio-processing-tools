@@ -9,7 +9,7 @@ import {
   langSelect,
   translateChk,
 } from "./state.js";
-import { log, setStatus } from "./ui.js";
+import { log, setStatus, setMascotActive } from "./ui.js";
 import { ensureWsOpen, sendCmd, sendCmdIfOpen } from "./ws.js";
 import { startAudio, stopAudio } from "./audio.js";
 import { setBusyControls } from "./file-mode.js";
@@ -35,6 +35,7 @@ async function start() {
     await startAudio();
     state.running = true;
     stopBtn.disabled = false;
+    setMascotActive(true); // GIF while transcribing
     // Status flips to "recording" when the local model is ready;
     // otherwise an error (or loading_model) arrives.
   } catch (err) {
@@ -49,6 +50,7 @@ async function start() {
 export function stopAll(reason) {
   const wasRunning = state.running;
   stopAudio();
+  setMascotActive(false); // back to the idle PNG
   if (wasRunning) {
     sendCmdIfOpen({ type: "stop" });
   } else if (reason && state.localWs && state.localWs.readyState === WebSocket.OPEN) {
