@@ -120,8 +120,8 @@ button.danger:hover:not(:disabled) { background: rgba(255, 93, 93, 0.12); }
   left: 12.5vw;
   transform: translate(-50%, -50%);
   /* Fixed box + contain: the idle mascot.png is square while the running
-     mascot-active.gif is 16:9, so a constant box keeps the src swap from
-     shifting the layout. */
+     mascot-active.gif and the one-shot mascot-done.gif are 16:9, so a
+     constant box keeps the src swap from shifting the layout. */
   width: 330px;
   height: 200px;
   object-fit: contain;

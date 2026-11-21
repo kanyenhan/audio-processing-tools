@@ -9,7 +9,7 @@ import {
   langSelect,
   translateChk,
 } from "./state.js";
-import { log, setStatus, setMascotActive } from "./ui.js";
+import { log, setStatus, setMascotActive, playMascotDone } from "./ui.js";
 import { ensureWsOpen, sendCmd, sendCmdIfOpen } from "./ws.js";
 import { startAudio, stopAudio } from "./audio.js";
 import { setBusyControls } from "./file-mode.js";
@@ -50,7 +50,8 @@ async function start() {
 export function stopAll(reason) {
   const wasRunning = state.running;
   stopAudio();
-  setMascotActive(false); // back to the idle PNG
+  if (reason) setMascotActive(false); // failure: straight back to the idle PNG
+  else playMascotDone();              // clean stop: one-shot done GIF, then idle
   if (wasRunning) {
     sendCmdIfOpen({ type: "stop" });
   } else if (reason && state.localWs && state.localWs.readyState === WebSocket.OPEN) {

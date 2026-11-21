@@ -274,18 +274,52 @@ exportBtn.addEventListener("click", () => {
 // ---------- mascot art (left gutter) ----------
 // Static mascot.png at idle; while a transcription is in flight (live
 // mic session or file processing) the src swaps to the looping
-// mascot-active.gif.  Browsers loop GIFs natively, so the animation needs
-// no extra code: the call sites (live-mode.js, file-mode.js, ws.js) just
-// toggle it at their start/stop points.
+// mascot-active.gif; when a run stops (live) or finishes (file) the src
+// swaps to mascot-done.gif, which plays exactly once and then falls back
+// to the idle PNG.  Browsers loop GIFs natively and expose no "ended"
+// event, so the one-shot is driven by a timer matching the done GIF's
+// total playback (30 frames × 100ms — keep in sync if the asset changes).
+// The call sites (live-mode.js, file-mode.js, ws.js) just pick the state
+// at their start/stop points.
 const MASCOT_IDLE_SRC = "/static/assets/mascot.png";
 const MASCOT_ACTIVE_SRC = "/static/assets/mascot-active.gif";
+const MASCOT_DONE_SRC = "/static/assets/mascot-done.gif";
+const MASCOT_DONE_MS = 3000; // one full playback of mascot-done.gif
 
-// Preload the animated version so it starts on the first frame of
-// activity, not after a fetch.
+// Preload the animated versions so they start on the first frame of
+// activity (or celebration), not after a fetch.
 new Image().src = MASCOT_ACTIVE_SRC;
+new Image().src = MASCOT_DONE_SRC;
+
+let mascotDoneTimer = null; // pending fall-back from the done GIF to idle
+
+function setMascotSrc(src) {
+  if (mascotEl.getAttribute("src") !== src) mascotEl.setAttribute("src", src);
+}
+
+function cancelMascotDone() {
+  if (mascotDoneTimer) {
+    clearTimeout(mascotDoneTimer);
+    mascotDoneTimer = null;
+  }
+}
 
 export function setMascotActive(active) {
-  const src = active ? MASCOT_ACTIVE_SRC : MASCOT_IDLE_SRC;
-  if (mascotEl.getAttribute("src") !== src) mascotEl.setAttribute("src", src);
+  // A new run (or a failure reset) supersedes a one-shot done playback.
+  cancelMascotDone();
+  setMascotSrc(active ? MASCOT_ACTIVE_SRC : MASCOT_IDLE_SRC);
+}
+
+// One-shot: play mascot-done.gif once, then fall back to the idle PNG.
+// A second call while it is already playing is a no-op, so the in-flight
+// timer remains the only path back to idle.
+export function playMascotDone() {
+  if (mascotEl.getAttribute("src") === MASCOT_DONE_SRC) return;
+  cancelMascotDone();
+  setMascotSrc(MASCOT_DONE_SRC);
+  mascotDoneTimer = setTimeout(() => {
+    mascotDoneTimer = null;
+    setMascotSrc(MASCOT_IDLE_SRC);
+  }, MASCOT_DONE_MS);
 }
 
